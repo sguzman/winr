@@ -5,9 +5,9 @@
 # - progress logging should stay on one updating console line instead of one line per click
 
 [profile]
-id = "roblox-grass-mower-simulator-auto-clicker"
-name = "Roblox Grass Mower Simulator Auto Clicker"
-description = "Rapid left-click profile for the exercise loop in Grass Mower Simulator on Roblox."
+id = "general-roblox-auto-clicker"
+name = "General Roblox Auto Clicker"
+description = "Rapid left-click profile for Roblox windows."
 version = "1"
 
 [target]

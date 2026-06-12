@@ -135,10 +135,10 @@ winr mouse click-window --title Notepad --x 40 --y 20
 Profiles:
 
 ```powershell
-winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml
-winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --focus-target
-winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --focus-target --arm-delay-ms 1500
-winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --max-clicks 100
+winr profile run profile/general-roblox-auto-clicker.toml
+winr profile run profile/general-roblox-auto-clicker.toml --focus-target
+winr profile run profile/general-roblox-auto-clicker.toml --focus-target --arm-delay-ms 1500
+winr profile run profile/general-roblox-auto-clicker.toml --max-clicks 100
 ```
 
 Press `Ctrl+C` to stop a running profile cleanly.
