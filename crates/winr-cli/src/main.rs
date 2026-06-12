@@ -240,6 +240,8 @@ struct ProfileRunArgs {
     poll_interval_ms: u64,
     #[arg(long, help = "Stop automatically after this many clicks")]
     max_clicks: Option<u64>,
+    #[arg(long, default_value_t = false, help = "Try to focus the matched target window before starting")]
+    focus_target: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -575,6 +577,7 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                     wait_timeout: args.wait_timeout_ms.map(Duration::from_millis),
                     poll_interval: Duration::from_millis(args.poll_interval_ms),
                     max_triggers: args.max_clicks,
+                    focus_target: args.focus_target,
                 };
                 let result = run_profile_with_console(&profile, options, cli.json)?;
                 emit(cli.json, &result)

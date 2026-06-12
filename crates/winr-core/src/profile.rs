@@ -11,13 +11,16 @@ use winr_types::{
     WindowSelector, WinrError, WinrResult,
 };
 
-use crate::{ListWindowsOptions, MouseButton, foreground_window, list_windows, mouse_click};
+use crate::{
+    ListWindowsOptions, MouseButton, focus_window, foreground_window, list_windows, mouse_click,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProfileRunOptions {
     pub wait_timeout: Option<Duration>,
     pub poll_interval: Duration,
     pub max_triggers: Option<u64>,
+    pub focus_target: bool,
 }
 
 impl Default for ProfileRunOptions {
@@ -26,6 +29,7 @@ impl Default for ProfileRunOptions {
             wait_timeout: None,
             poll_interval: Duration::from_millis(250),
             max_triggers: None,
+            focus_target: false,
         }
     }
 }
@@ -78,7 +82,7 @@ where
             selector: selector.clone(),
         });
 
-        if let Some(window) = resolve_profile_target(profile)? {
+        if let Some(window) = resolve_profile_target(profile, options.focus_target)? {
             info!(
                 hwnd = %window.hwnd,
                 title = %window.title,
@@ -200,7 +204,7 @@ fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
     Ok(())
 }
 
-fn resolve_profile_target(profile: &ProfileConfig) -> WinrResult<Option<WindowInfo>> {
+fn resolve_profile_target(profile: &ProfileConfig, focus_target: bool) -> WinrResult<Option<WindowInfo>> {
     let mut matches = list_windows(
         &profile.target,
         ListWindowsOptions {
@@ -208,26 +212,61 @@ fn resolve_profile_target(profile: &ProfileConfig) -> WinrResult<Option<WindowIn
         },
     )?;
     matches.retain(|window| !window.minimized);
-    if profile.safety.require_foreground_window {
-        matches.retain(|window| window.foreground);
-    }
     matches.sort_by(|left, right| {
-        left.hwnd
-            .cmp(&right.hwnd)
+        right.foreground
+            .cmp(&left.foreground)
+            .then_with(|| left.hwnd.cmp(&right.hwnd))
             .then_with(|| left.title.cmp(&right.title))
     });
 
-    let resolved = matches.into_iter().next();
-    if let Some(window) = &resolved {
+    let first = matches.into_iter().next();
+    let Some(window) = first else {
+        return Ok(None);
+    };
+
+    if profile.safety.require_foreground_window && !window.foreground {
+        if focus_target {
+            let selector = WindowSelector {
+                hwnd: Some(window.hwnd.clone()),
+                ..WindowSelector::default()
+            };
+            match focus_window(&selector) {
+                Ok(focused) => {
+                    debug!(
+                        hwnd = %focused.hwnd,
+                        title = %focused.title,
+                        "focused profile target before start"
+                    );
+                    return Ok(Some(focused));
+                }
+                Err(error) => {
+                    warn!(
+                        hwnd = %window.hwnd,
+                        title = %window.title,
+                        %error,
+                        "failed to focus profile target before start"
+                    );
+                    return Ok(None);
+                }
+            }
+        }
+
         debug!(
             hwnd = %window.hwnd,
             title = %window.title,
-            foreground = window.foreground,
-            visible = window.visible,
-            "resolved profile target candidate"
+            "profile target exists but is not foreground yet"
         );
+        return Ok(None);
     }
-    Ok(resolved)
+
+    debug!(
+        hwnd = %window.hwnd,
+        title = %window.title,
+        foreground = window.foreground,
+        visible = window.visible,
+        "resolved profile target candidate"
+    );
+    Ok(Some(window))
 }
 
 fn random_delta(max_delta_ms: u64) -> u64 {
