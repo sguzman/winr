@@ -28,9 +28,9 @@
 
 ## Input
 
-- [ ] Send text to the foreground window
-- [ ] Send keyboard combos and key sequences
-- [ ] Send mouse clicks and window-relative clicks
+- [x] Send text to the foreground window
+- [x] Send keyboard combos and key sequences
+- [x] Send mouse clicks and window-relative clicks
 
 ## UI Automation
 

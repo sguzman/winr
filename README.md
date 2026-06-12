@@ -1,6 +1,6 @@
 # winr
 
-`winr` is a Windows 11 desktop automation toolkit in Rust. The current milestone provides a strong CLI foundation for discovering windows, inspecting metadata, manipulating top-level windows, and capturing screenshots with honest error reporting.
+`winr` is a Windows 11 desktop automation toolkit in Rust. The current milestone provides a strong CLI foundation for discovering windows, inspecting metadata, manipulating top-level windows, capturing screenshots, and sending practical foreground input with honest error reporting.
 
 ## Current capabilities
 
@@ -12,6 +12,8 @@
 - Restore, minimize, maximize, move, resize, and close selected windows
 - Capture desktop screenshots with GDI
 - Capture window screenshots with `PrintWindow` or GDI fallback
+- Send text, combos, and small key sequences through `SendInput`
+- Send mouse clicks at the current cursor or client-relative points inside a target window
 - Emit extensive structured logs with `tracing`
 
 ## Project layout
@@ -65,6 +67,9 @@ cargo run -p winr-cli -- window restore --title Notepad
 cargo run -p winr-cli -- window move --title Notepad --x 100 --y 100 --width 1280 --height 720
 cargo run -p winr-cli -- screenshot desktop --out target\\desktop.png
 cargo run -p winr-cli -- screenshot window --title Notepad --out target\\notepad.png --backend auto
+cargo run -p winr-cli -- input text --title Notepad "hello world"
+cargo run -p winr-cli -- input keys --title Notepad --combo ctrl+l
+cargo run -p winr-cli -- mouse click-window --title Notepad --x 40 --y 20
 ```
 
 ## Command reference
@@ -122,6 +127,18 @@ winr screenshot window --title Notepad --out target\notepad.png --backend print-
 winr screenshot window --exe Code.exe --out target\code.jpg --backend gdi
 ```
 
+Input:
+
+```powershell
+winr input text "hello world"
+winr input text --title Notepad "hello world"
+winr input keys --title Notepad --combo ctrl+l
+winr input sequence --title Notepad --step ctrl+l --step text:https://example.com --step enter
+winr mouse click --button left
+winr mouse click --button right --x 100 --y 200
+winr mouse click-window --title Notepad --x 40 --y 20
+```
+
 ## JSON output
 
 Successful commands return:
@@ -169,6 +186,7 @@ The current logging coverage includes:
 - Win32 enumeration and foreground checks
 - focus attempts and failures
 - screenshot backend selection and fallback behavior
+- SendInput event generation and targeted input routing
 - JSON error conversion
 
 ## Roadmap summary
@@ -186,6 +204,11 @@ The current command tree is:
 ```text
 winr windows list
 winr windows foreground
+winr input text
+winr input keys
+winr input sequence
+winr mouse click
+winr mouse click-window
 winr screenshot desktop
 winr screenshot window
 winr window info

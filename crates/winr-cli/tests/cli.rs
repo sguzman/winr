@@ -105,3 +105,40 @@ fn screenshot_window_reports_not_found() {
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"], "WindowNotFound");
 }
+
+#[test]
+fn input_text_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "input",
+        "text",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "hello",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}
+
+#[test]
+fn mouse_click_window_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "mouse",
+        "click-window",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "--x",
+        "10",
+        "--y",
+        "20",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}

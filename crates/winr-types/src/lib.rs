@@ -102,6 +102,14 @@ pub struct ScreenshotResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputActionResult {
+    pub action: String,
+    pub details: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuccessResponse<T> {
     pub ok: bool,
     pub data: T,
@@ -291,5 +299,18 @@ mod tests {
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"backend\":\"gdi\""));
         assert!(json.contains("\"path\":\"target/test.png\""));
+    }
+
+    #[test]
+    fn serializes_input_action_result() {
+        let result = InputActionResult {
+            action: "text".to_string(),
+            details: "hello".to_string(),
+            window: Some(sample_window()),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"action\":\"text\""));
+        assert!(json.contains("\"details\":\"hello\""));
     }
 }

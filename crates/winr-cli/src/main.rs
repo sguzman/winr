@@ -7,13 +7,14 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{EnvFilter, fmt};
 use winr_core::{
-    ListWindowsOptions, close_window, focus_window, foreground_window, list_windows,
-    maximize_window, minimize_window, move_window, resize_window, restore_window,
-    screenshot_desktop, screenshot_window, window_info,
+    ListWindowsOptions, MouseButton, close_window, focus_window, foreground_window, input_keys,
+    input_sequence, input_text, list_windows, maximize_window, minimize_window, mouse_click,
+    mouse_click_window, move_window, resize_window, restore_window, screenshot_desktop,
+    screenshot_window, window_info,
 };
 use winr_types::{
-    ErrorResponse, ScreenshotBackend, ScreenshotResult, SuccessResponse, WindowActionResult,
-    WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
+    ErrorResponse, InputActionResult, ScreenshotBackend, ScreenshotResult, SuccessResponse,
+    WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -58,6 +59,14 @@ enum RootCommand {
         #[command(subcommand)]
         command: WindowsCommand,
     },
+    Input {
+        #[command(subcommand)]
+        command: InputCommand,
+    },
+    Mouse {
+        #[command(subcommand)]
+        command: MouseCommand,
+    },
     Screenshot {
         #[command(subcommand)]
         command: ScreenshotCommand,
@@ -78,6 +87,19 @@ enum WindowsCommand {
 enum ScreenshotCommand {
     Desktop(DesktopScreenshotArgs),
     Window(WindowScreenshotArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum InputCommand {
+    Text(TextInputArgs),
+    Keys(KeysInputArgs),
+    Sequence(SequenceInputArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum MouseCommand {
+    Click(MouseClickArgs),
+    ClickWindow(MouseClickWindowArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -159,6 +181,76 @@ struct WindowScreenshotArgs {
     backend: ScreenshotBackendArg,
 }
 
+#[derive(Debug, Args)]
+struct TextInputArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    focus_first: bool,
+    text: String,
+}
+
+#[derive(Debug, Args)]
+struct KeysInputArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    focus_first: bool,
+    #[arg(long)]
+    combo: String,
+}
+
+#[derive(Debug, Args)]
+struct SequenceInputArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    focus_first: bool,
+    #[arg(long = "step", required = true)]
+    steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MouseButtonArg {
+    Left,
+    Right,
+    Middle,
+}
+
+impl From<MouseButtonArg> for MouseButton {
+    fn from(value: MouseButtonArg) -> Self {
+        match value {
+            MouseButtonArg::Left => MouseButton::Left,
+            MouseButtonArg::Right => MouseButton::Right,
+            MouseButtonArg::Middle => MouseButton::Middle,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct MouseClickArgs {
+    #[arg(long, value_enum, default_value = "left")]
+    button: MouseButtonArg,
+    #[arg(long)]
+    x: Option<i32>,
+    #[arg(long)]
+    y: Option<i32>,
+}
+
+#[derive(Debug, Args)]
+struct MouseClickWindowArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long)]
+    x: i32,
+    #[arg(long)]
+    y: i32,
+    #[arg(long, value_enum, default_value = "left")]
+    button: MouseButtonArg,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    focus_first: bool,
+}
+
 #[derive(Debug, Args, Clone, Default)]
 struct SelectorArgs {
     #[arg(long, value_parser = parse_hwnd_arg, help = "Window handle in hexadecimal")]
@@ -204,6 +296,52 @@ fn run(cli: Cli) -> Result<(), WinrError> {
             WindowsCommand::Foreground => {
                 let window = foreground_window()?;
                 emit(cli.json, &window)
+            }
+        },
+        RootCommand::Input { command } => match command {
+            InputCommand::Text(args) => {
+                let selector = args.selector.into_selector();
+                let result = input_text(
+                    selector.has_criteria().then_some(&selector),
+                    &args.text,
+                    args.focus_first,
+                )?;
+                emit(cli.json, &result)
+            }
+            InputCommand::Keys(args) => {
+                let selector = args.selector.into_selector();
+                let result = input_keys(
+                    selector.has_criteria().then_some(&selector),
+                    &args.combo,
+                    args.focus_first,
+                )?;
+                emit(cli.json, &result)
+            }
+            InputCommand::Sequence(args) => {
+                let selector = args.selector.into_selector();
+                let result = input_sequence(
+                    selector.has_criteria().then_some(&selector),
+                    &args.steps,
+                    args.focus_first,
+                )?;
+                emit(cli.json, &result)
+            }
+        },
+        RootCommand::Mouse { command } => match command {
+            MouseCommand::Click(args) => {
+                let result = mouse_click(args.button.into(), args.x, args.y)?;
+                emit(cli.json, &result)
+            }
+            MouseCommand::ClickWindow(args) => {
+                let selector = require_selector(args.selector.into_selector())?;
+                let result = mouse_click_window(
+                    &selector,
+                    args.x,
+                    args.y,
+                    args.button.into(),
+                    args.focus_first,
+                )?;
+                emit(cli.json, &result)
             }
         },
         RootCommand::Screenshot { command } => match command {
@@ -375,6 +513,17 @@ impl HumanOutput for ScreenshotResult {
         writeln!(writer, "width: {}", self.width).map_err(io_error)?;
         writeln!(writer, "height: {}", self.height).map_err(io_error)?;
         writeln!(writer, "backend: {}", self.backend.as_str()).map_err(io_error)
+    }
+}
+
+impl HumanOutput for InputActionResult {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "action: {}", self.action).map_err(io_error)?;
+        writeln!(writer, "details: {}", self.details).map_err(io_error)?;
+        if let Some(window) = &self.window {
+            window.write_human(writer)?;
+        }
+        Ok(())
     }
 }
 
