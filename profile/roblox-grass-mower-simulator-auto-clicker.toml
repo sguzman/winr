@@ -13,6 +13,7 @@ version = "1"
 [target]
 title_contains = "Roblox"
 exe = "RobloxPlayerBeta.exe"
+class_name = "WINDOWSCLIENT"
 
 [action]
 kind = "mouse_click"

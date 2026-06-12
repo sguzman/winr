@@ -139,6 +139,8 @@ winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml
 winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --max-clicks 100
 ```
 
+Press `Ctrl+C` to stop a running profile cleanly.
+
 ## Input backends
 
 `winr` now supports three distinct input modes on `input text`, `input keys`, and `input sequence`:

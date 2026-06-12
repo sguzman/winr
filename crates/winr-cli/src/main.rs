@@ -1,6 +1,10 @@
 use std::{
     io::{self, Write},
     path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -626,55 +630,65 @@ fn run_profile_with_console(
     options: ProfileRunOptions,
     json: bool,
 ) -> Result<ProfileRunResult, WinrError> {
+    let stop_requested = Arc::new(AtomicBool::new(false));
+    let signal_flag = Arc::clone(&stop_requested);
+    ctrlc::set_handler(move || {
+        signal_flag.store(true, Ordering::SeqCst);
+    })
+    .map_err(|error| WinrError::Unsupported {
+        message: format!("failed to install Ctrl+C handler: {error}"),
+    })?;
+
     let mut stderr = io::stderr().lock();
     let mut last_count = 0_u64;
     let mut rendered_progress = false;
     let mut announced_wait = false;
     let mut acquired_target = false;
 
-    let result = run_profile(profile, options, |event| match event {
-        ProfileRunEvent::WaitingForTarget { selector } => {
-            if json || announced_wait {
-                return;
+    let result = run_profile(
+        profile,
+        options,
+        |event| match event {
+            ProfileRunEvent::WaitingForTarget { selector } => {
+                if json || announced_wait {
+                    return;
+                }
+                let _ = writeln!(
+                    stderr,
+                    "waiting for target window: title={:?} exe={:?} class={:?}",
+                    selector.title_contains, selector.exe, selector.class_name
+                );
+                announced_wait = true;
             }
-            let _ = writeln!(
-                stderr,
-                "waiting for target window: title={:?} exe={:?} class={:?}",
-                selector.title_contains, selector.exe, selector.class_name
-            );
-            announced_wait = true;
-        }
-        ProfileRunEvent::TargetAcquired { window } => {
-            if json || acquired_target {
-                return;
+            ProfileRunEvent::TargetAcquired { window } => {
+                if json || acquired_target {
+                    return;
+                }
+                let _ = writeln!(stderr, "target acquired: {} {}", window.hwnd, window.title);
+                acquired_target = true;
             }
-            let _ = writeln!(
-                stderr,
-                "target acquired: {} {}",
-                window.hwnd, window.title
-            );
-            acquired_target = true;
-        }
-        ProfileRunEvent::TriggerFired { count } => {
-            last_count = count;
-            if json {
-                return;
+            ProfileRunEvent::TriggerFired { count } => {
+                last_count = count;
+                if json {
+                    return;
+                }
+                let _ = write!(stderr, "\rautoclicks fired: {count}");
+                let _ = stderr.flush();
+                rendered_progress = true;
             }
-            let _ = write!(stderr, "\rautoclicks fired: {count}");
-            let _ = stderr.flush();
-            rendered_progress = true;
-        }
-        ProfileRunEvent::Stopped { count, reason } => {
-            last_count = count;
-            if json {
-                return;
+            ProfileRunEvent::Stopped { count, reason } => {
+                last_count = count;
+                if json {
+                    return;
+                }
+                if rendered_progress {
+                    let _ = writeln!(stderr, "\rautoclicks fired: {count}");
+                }
+                let _ = writeln!(stderr, "profile stopped: {reason}");
             }
-            if rendered_progress {
-                let _ = writeln!(stderr, "\rautoclicks fired: {count}");
-            }
-            let _ = writeln!(stderr, "profile stopped: {reason}");
-        }
-    });
+        },
+        || stop_requested.load(Ordering::SeqCst),
+    );
 
     if !json && rendered_progress && result.is_err() {
         let _ = writeln!(stderr, "\rautoclicks fired: {last_count}");

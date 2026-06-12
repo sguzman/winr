@@ -52,20 +52,28 @@ pub fn parse_profile(raw: &str) -> WinrResult<ProfileConfig> {
     })
 }
 
-#[instrument(skip(profile, on_event))]
-pub fn run_profile<F>(
+#[instrument(skip(profile, on_event, should_stop))]
+pub fn run_profile<F, G>(
     profile: &ProfileConfig,
     options: ProfileRunOptions,
     mut on_event: F,
+    mut should_stop: G,
 ) -> WinrResult<ProfileRunResult>
 where
     F: FnMut(ProfileRunEvent),
+    G: FnMut() -> bool,
 {
     validate_profile(profile)?;
 
     let started_at = Instant::now();
     let selector = profile.target.clone();
     let target = loop {
+        if should_stop() {
+            return Err(WinrError::Unsupported {
+                message: "profile run cancelled before the target window appeared".to_string(),
+            });
+        }
+
         on_event(ProfileRunEvent::WaitingForTarget {
             selector: selector.clone(),
         });
@@ -100,6 +108,15 @@ where
     let mut fired = 0_u64;
 
     loop {
+        if should_stop() {
+            info!(fired, "profile stop requested by signal");
+            on_event(ProfileRunEvent::Stopped {
+                count: fired,
+                reason: "received ctrl+c".to_string(),
+            });
+            break;
+        }
+
         if profile.safety.stop_on_focus_loss {
             let foreground = foreground_window()?;
             if !profile.target.matches(&foreground) {
