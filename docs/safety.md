@@ -102,6 +102,8 @@ Common safety-related JSON errors:
 
 ## Notes
 
-- `SendInput` is only reliable for the actual foreground window
-- `winr` now rejects targeted input with `focus_first=false` when the target is not already foreground
+- `foreground` input uses `SendInput` and is only reliable for the actual foreground window
+- `message` input is still subject to the same config, allowlist, denylist, and integrity checks
+- `message` input is classic-Win32-oriented and may work against background `Edit`-style controls, but not against many modern custom-rendered apps
+- `uia` input depends on the target application exposing useful accessibility patterns
 - minimized targets are rejected for risky direct-input flows rather than producing misleading success

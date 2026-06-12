@@ -154,6 +154,65 @@ fn input_text_reports_not_found() {
 }
 
 #[test]
+fn input_text_message_mode_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "input",
+        "text",
+        "--input-mode",
+        "message",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "hello",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}
+
+#[test]
+fn input_keys_message_mode_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "input",
+        "keys",
+        "--input-mode",
+        "message",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "--combo",
+        "ctrl+a",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}
+
+#[test]
+fn input_sequence_message_mode_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "input",
+        "sequence",
+        "--input-mode",
+        "message",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "--step",
+        "ctrl+a",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}
+
+#[test]
 fn mouse_click_window_reports_not_found() {
     let output = run_winr(&[
         "--json",

@@ -22,7 +22,7 @@ use winr_core::{
     uia_tree as core_uia_tree, window_info as core_window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, ScreenshotBackend, ScreenshotResult, SuccessResponse,
+    ErrorResponse, InputActionResult, InputMode, ScreenshotBackend, ScreenshotResult, SuccessResponse,
     UiaActionRequest, UiaActionResult, UiaFindRequest, UiaFindResponse, UiaSetTextRequest,
     UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
 };
@@ -70,6 +70,8 @@ pub struct InputKeysParams {
     pub combo: String,
     #[serde(default = "default_true")]
     pub focus_first: bool,
+    #[serde(default)]
+    pub input_mode: Option<InputMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -79,6 +81,8 @@ pub struct InputTextParams {
     pub text: String,
     #[serde(default = "default_true")]
     pub focus_first: bool,
+    #[serde(default)]
+    pub input_mode: Option<InputMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -238,6 +242,7 @@ impl WinrMcpServer {
             params.selector.as_ref(),
             &params.combo,
             params.focus_first,
+            params.input_mode.unwrap_or(InputMode::Foreground),
         ))
     }
 
@@ -251,6 +256,7 @@ impl WinrMcpServer {
             params.selector.as_ref(),
             &params.text,
             params.focus_first,
+            params.input_mode.unwrap_or(InputMode::Foreground),
         ))
     }
 

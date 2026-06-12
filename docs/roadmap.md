@@ -31,6 +31,8 @@
 - [x] Send text to the foreground window
 - [x] Send keyboard combos and key sequences
 - [x] Send mouse clicks and window-relative clicks
+- [x] Add backend selection for `foreground`, `uia`, and classic-Win32-oriented `message` input
+- [x] Support first-pass background text and key delivery for classic Win32 child controls
 
 ## UI Automation
 

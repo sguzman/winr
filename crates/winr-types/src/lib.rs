@@ -105,9 +105,28 @@ pub struct ScreenshotResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct InputActionResult {
     pub action: String,
+    pub mode: InputMode,
     pub details: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InputMode {
+    Foreground,
+    Uia,
+    Message,
+}
+
+impl InputMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Foreground => "foreground",
+            Self::Uia => "uia",
+            Self::Message => "message",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -481,6 +500,7 @@ mod tests {
     fn serializes_input_action_result() {
         let result = InputActionResult {
             action: "text".to_string(),
+            mode: InputMode::Foreground,
             details: "hello".to_string(),
             window: Some(sample_window()),
         };
@@ -488,5 +508,11 @@ mod tests {
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"action\":\"text\""));
         assert!(json.contains("\"details\":\"hello\""));
+    }
+
+    #[test]
+    fn serializes_input_mode() {
+        let json = serde_json::to_string(&InputMode::Message).unwrap();
+        assert_eq!(json, "\"message\"");
     }
 }

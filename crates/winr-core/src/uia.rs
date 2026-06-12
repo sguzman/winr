@@ -12,7 +12,7 @@ use windows::core::{BSTR, Error as WindowsError};
 use winr_types::{
     Rect, UiaActionRequest, UiaActionResult, UiaElementInfo, UiaFindRequest, UiaFindResponse,
     UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest, UiaTreeResponse, WindowInfo,
-    WinrError, WinrResult, format_hwnd,
+    WindowSelector, WinrError, WinrResult, format_hwnd,
 };
 
 use crate::{
@@ -116,6 +116,42 @@ pub fn uia_set_text(request: &UiaSetTextRequest) -> WinrResult<UiaActionResult> 
     })
 }
 
+#[instrument(skip(selector, text))]
+pub fn uia_set_text_auto(selector: &WindowSelector, text: &str) -> WinrResult<UiaActionResult> {
+    let window = window_info(selector)?;
+    enforce_input_permission(&window, "uia_set_text_auto")?;
+    enforce_integrity_level_for_pid(window.pid, "uia_set_text_auto")?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+    let _com = ComGuard::initialize()?;
+    let root = automation_root(&create_automation()?, hwnd, &window)?;
+    let native = resolve_auto_text_element(&root)?;
+    let element = describe_element(&native)?;
+
+    debug!(
+        hwnd = %window.hwnd,
+        element_name = ?element.name,
+        automation_id = ?element.automation_id,
+        class_name = ?element.class_name,
+        text_len = text.chars().count(),
+        "setting UI Automation value through auto-target resolution"
+    );
+
+    let pattern = unsafe {
+        native
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+            .map_err(windows_error)?
+    };
+    let value = BSTR::from(text);
+    unsafe { pattern.SetValue(&value).map_err(windows_error)? };
+
+    Ok(UiaActionResult {
+        action: "set_text".to_string(),
+        window,
+        element,
+        details: Some(text.to_string()),
+    })
+}
+
 fn resolve_single_element(
     window_selector: &winr_types::WindowSelector,
     element_selector: &UiaSelector,
@@ -128,6 +164,51 @@ fn resolve_single_element(
     let native = resolve_native_element(&root, element_selector)?;
     let element = describe_element(&native)?;
     Ok((window, element, native))
+}
+
+fn resolve_auto_text_element(root: &IUIAutomationElement) -> WinrResult<IUIAutomationElement> {
+    let all = subtree_elements(root)?;
+    let mut fallback = None;
+
+    for element in all {
+        let described = describe_element(&element)?;
+        let class_name = described.class_name.as_deref().unwrap_or_default();
+        let control_type = described
+            .localized_control_type
+            .as_deref()
+            .unwrap_or_default();
+        let enabled = described.enabled.unwrap_or(true);
+        let editable =
+            is_edit_like_class_name(class_name) || control_type.eq_ignore_ascii_case("edit");
+        if !editable || !enabled {
+            continue;
+        }
+
+        trace!(
+            name = ?described.name,
+            automation_id = ?described.automation_id,
+            class_name = ?described.class_name,
+            localized_control_type = ?described.localized_control_type,
+            "resolved candidate UI Automation text target"
+        );
+
+        if fallback.is_none() {
+            fallback = Some(element.clone());
+        }
+
+        if unsafe {
+            element
+                .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                .is_ok()
+        } {
+            return Ok(element);
+        }
+    }
+
+    fallback.ok_or_else(|| WinrError::Unsupported {
+        message: "input_mode=uia could not find a suitable editable UI Automation element"
+            .to_string(),
+    })
 }
 
 fn resolve_native_element(
@@ -305,6 +386,14 @@ fn create_automation() -> WinrResult<IUIAutomation> {
             })
             .map_err(windows_error)
     }
+}
+
+fn is_edit_like_class_name(class_name: &str) -> bool {
+    let class_name = class_name.to_ascii_lowercase();
+    class_name == "edit"
+        || class_name.contains("edit")
+        || class_name.contains("richedit")
+        || class_name == "scintilla"
 }
 
 fn rect_to_option(rect: RECT) -> Option<Rect> {

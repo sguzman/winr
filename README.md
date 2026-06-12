@@ -1,6 +1,6 @@
 # winr
 
-`winr` is a Rust workspace for Windows 11 desktop automation. It ships a CLI-first core for real window operations, screenshots, foreground input, UI Automation, and a stdio MCP server that reuses the same core behavior.
+`winr` is a Rust workspace for Windows 11 desktop automation. It ships a CLI-first core for real window operations, screenshots, multiple input backends, UI Automation, and a stdio MCP server that reuses the same core behavior.
 
 ## Purpose
 
@@ -14,7 +14,7 @@ The project is built around a simple rule: prove the Windows primitives locally 
 - Focus, restore, minimize, maximize, move, resize, and close windows
 - Capture desktop screenshots with GDI
 - Capture window screenshots with `PrintWindow` and GDI fallback
-- Send foreground text, key combos, and key sequences through `SendInput`
+- Send text, key combos, and key sequences through `foreground`, `uia`, or classic-Win32-oriented `message` backends
 - Send screen clicks and window-relative clicks
 - Inspect UI Automation trees
 - Find UI Automation elements by accessible metadata
@@ -46,8 +46,9 @@ This split leaves room for later safety policy, richer automation, and broader t
 
 - `SetForegroundWindow` is subject to Windows focus restrictions
 - elevated or protected targets may reject interaction from a normal process
-- `SendInput` is most reliable after restore and focus
-- background or minimized-window interaction is app-dependent and not treated as universally reliable
+- `foreground` input uses `SendInput` and is most reliable after restore and focus
+- `message` input can work against background classic Win32 controls, but it is app-dependent and not universally reliable
+- background or minimized-window interaction is still app-dependent and not treated as universally reliable
 - UI Automation only works when the target application exposes useful accessibility patterns
 
 When an action cannot be completed cleanly, `winr` returns structured errors such as `ForegroundDenied`, `WindowNotFound`, `AmbiguousWindow`, `UiaElementNotFound`, or `AmbiguousUiaElement`.
@@ -124,9 +125,27 @@ Input:
 winr input text --title Notepad "hello world"
 winr input keys --title Notepad --combo ctrl+l
 winr input sequence --title Notepad --step ctrl+l --step text:https://example.com --step enter
+winr input text --input-mode message --title Notepad "hello"
+winr input keys --input-mode message --title Notepad --combo ctrl+a
+winr input text --input-mode uia --title Notepad "hello from UIA"
 winr mouse click --button left --x 100 --y 200
 winr mouse click-window --title Notepad --x 40 --y 20
 ```
+
+## Input backends
+
+`winr` now supports three distinct input modes on `input text`, `input keys`, and `input sequence`:
+
+- `foreground`: default mode. Uses `SendInput`, honors `focus_first`, and is the most universal path.
+- `uia`: available for compatible text-entry scenarios. Best when the target app exposes useful accessibility value patterns.
+- `message`: background-capable for classic Win32 windows and common child controls such as `Edit` or dialog-hosted text fields. It does not claim broad compatibility with Chromium, Electron, WinUI, or custom-rendered apps.
+
+Quick guidance:
+
+- classic Win32 apps and dialogs: likely good `message` candidates
+- Notepad and standard `Edit`-based controls: good first targets
+- Electron, Chromium, VS Code, Edge, and modern custom UI shells: likely unsupported in `message` mode
+- if you need broad compatibility, use `foreground`
 
 UI Automation:
 
@@ -206,11 +225,12 @@ Notes:
 - `HWND` values are serialized as uppercase hexadecimal strings like `0x000000000012034A`
 - ambiguous top-level window selection uses `matches`
 - ambiguous UIA selection uses `uia_matches`
+- `InputActionResult` includes `mode` so callers can see which backend executed
 - MCP tools return the same structured success and error shapes in `structuredContent`
 
 ## Logging
 
-`winr` uses `tracing` throughout startup, selector resolution, Win32 calls, screenshot backend selection, input routing, UIA operations, and MCP responses.
+`winr` uses `tracing` throughout startup, selector resolution, Win32 calls, screenshot backend selection, input routing, backend selection, child-target heuristics, UIA operations, and MCP responses.
 
 Default logging is `info`. Raise verbosity with `RUST_LOG`.
 
@@ -241,6 +261,8 @@ The current MCP server exposes:
 - `uia_set_text`
 
 The MCP layer does not expose arbitrary shell execution.
+
+`input_send_keys` and `input_send_text` accept an optional `input_mode` field with `foreground`, `uia`, or `message`. `uia` is intended for text-compatible flows.
 
 ## Safety and permissions
 

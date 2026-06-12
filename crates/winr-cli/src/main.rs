@@ -13,7 +13,7 @@ use winr_core::{
     screenshot_window, uia_find, uia_invoke, uia_set_text, uia_tree, window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, ScreenshotBackend, ScreenshotResult, SuccessResponse,
+    ErrorResponse, InputActionResult, InputMode, ScreenshotBackend, ScreenshotResult, SuccessResponse,
     UiaActionRequest, UiaActionResult, UiaElementInfo, UiaFindRequest, UiaFindResponse,
     UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest, UiaTreeResponse,
     WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
@@ -215,12 +215,31 @@ struct WindowScreenshotArgs {
     backend: ScreenshotBackendArg,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum InputModeArg {
+    Foreground,
+    Uia,
+    Message,
+}
+
+impl From<InputModeArg> for InputMode {
+    fn from(value: InputModeArg) -> Self {
+        match value {
+            InputModeArg::Foreground => InputMode::Foreground,
+            InputModeArg::Uia => InputMode::Uia,
+            InputModeArg::Message => InputMode::Message,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 struct TextInputArgs {
     #[command(flatten)]
     selector: SelectorArgs,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     focus_first: bool,
+    #[arg(long, value_enum, default_value = "foreground")]
+    input_mode: InputModeArg,
     text: String,
 }
 
@@ -230,6 +249,8 @@ struct KeysInputArgs {
     selector: SelectorArgs,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     focus_first: bool,
+    #[arg(long, value_enum, default_value = "foreground")]
+    input_mode: InputModeArg,
     #[arg(long)]
     combo: String,
 }
@@ -240,6 +261,8 @@ struct SequenceInputArgs {
     selector: SelectorArgs,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     focus_first: bool,
+    #[arg(long, value_enum, default_value = "foreground")]
+    input_mode: InputModeArg,
     #[arg(long = "step", required = true)]
     steps: Vec<String>,
 }
@@ -421,6 +444,7 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                     selector.has_criteria().then_some(&selector),
                     &args.text,
                     args.focus_first,
+                    args.input_mode.into(),
                 )?;
                 emit(cli.json, &result)
             }
@@ -430,6 +454,7 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                     selector.has_criteria().then_some(&selector),
                     &args.combo,
                     args.focus_first,
+                    args.input_mode.into(),
                 )?;
                 emit(cli.json, &result)
             }
@@ -439,6 +464,7 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                     selector.has_criteria().then_some(&selector),
                     &args.steps,
                     args.focus_first,
+                    args.input_mode.into(),
                 )?;
                 emit(cli.json, &result)
             }
@@ -689,6 +715,7 @@ impl HumanOutput for ScreenshotResult {
 impl HumanOutput for InputActionResult {
     fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
         writeln!(writer, "action: {}", self.action).map_err(io_error)?;
+        writeln!(writer, "mode: {}", self.mode.as_str()).map_err(io_error)?;
         writeln!(writer, "details: {}", self.details).map_err(io_error)?;
         if let Some(window) = &self.window {
             window.write_human(writer)?;

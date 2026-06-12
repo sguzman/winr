@@ -12,7 +12,7 @@ use config::{
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use security::enforce_integrity_level_for_pid;
 use tracing::{debug, instrument, trace, warn};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, ClientToScreen,
     CreateCompatibleBitmap, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC,
@@ -22,6 +22,7 @@ use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
+use windows::Win32::UI::Controls::{EM_REPLACESEL, EM_SETSEL};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
     KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
@@ -32,16 +33,18 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_UP, VkKeyScanW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-    MoveWindow, PostMessageW, SHOW_WINDOW_CMD, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SetCursorPos,
-    SetForegroundWindow, ShowWindow, WM_CLOSE,
+    EnumChildWindows, EnumWindows, GA_ROOT, GUITHREADINFO, GetAncestor, GetClassNameW,
+    GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetSystemMetrics, GetWindowRect,
+    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsChild, IsIconic,
+    IsWindowVisible, MoveWindow, PostMessageW, SHOW_WINDOW_CMD, SM_CXVIRTUALSCREEN,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_MAXIMIZE, SW_MINIMIZE,
+    SW_RESTORE, SendMessageW, SetCursorPos, SetForegroundWindow, ShowWindow, WM_CHAR, WM_CLOSE,
+    WM_GETTEXTLENGTH, WM_KEYDOWN, WM_KEYUP, WM_SETTEXT,
 };
 use windows::core::{BOOL, PWSTR};
 use winr_types::{
-    InputActionResult, Rect, ScreenshotBackend, ScreenshotResult, WindowActionResult, WindowInfo,
-    WindowSelector, WinrError, WinrResult, format_hwnd,
+    InputActionResult, InputMode, Rect, ScreenshotBackend, ScreenshotResult, WindowActionResult,
+    WindowInfo, WindowSelector, WinrError, WinrResult, format_hwnd,
 };
 
 pub use config::current_mcp_config;
@@ -210,28 +213,14 @@ pub fn input_text(
     selector: Option<&WindowSelector>,
     text: &str,
     focus_first: bool,
+    mode: InputMode,
 ) -> WinrResult<InputActionResult> {
-    let window = resolve_input_target(selector, focus_first)?;
-    if let Some(window) = &window {
-        enforce_input_permission(window, "input_text")?;
-        enforce_integrity_level_for_pid(window.pid, "input_text")?;
+    debug!(mode = mode.as_str(), focus_first, "dispatching text input");
+    match mode {
+        InputMode::Foreground => input_text_foreground(selector, text, focus_first),
+        InputMode::Uia => input_text_uia(selector, text, focus_first),
+        InputMode::Message => input_text_message(selector, text, focus_first),
     }
-    let inputs = unicode_inputs(text);
-
-    debug!(
-        text_len = text.encode_utf16().count(),
-        focus_first,
-        target = ?window.as_ref().map(|w| w.hwnd.clone()),
-        "sending text input"
-    );
-
-    send_inputs(&inputs, "text")?;
-
-    Ok(InputActionResult {
-        action: "text".to_string(),
-        details: text.to_string(),
-        window,
-    })
 }
 
 #[instrument(skip(selector, combo))]
@@ -239,29 +228,17 @@ pub fn input_keys(
     selector: Option<&WindowSelector>,
     combo: &str,
     focus_first: bool,
+    mode: InputMode,
 ) -> WinrResult<InputActionResult> {
-    let window = resolve_input_target(selector, focus_first)?;
-    if let Some(window) = &window {
-        enforce_input_permission(window, "input_keys")?;
-        enforce_integrity_level_for_pid(window.pid, "input_keys")?;
+    debug!(mode = mode.as_str(), focus_first, combo, "dispatching key input");
+    match mode {
+        InputMode::Foreground => input_keys_foreground(selector, combo, focus_first),
+        InputMode::Uia => Err(WinrError::Unsupported {
+            message: "input_mode=uia is supported only for text input in this milestone"
+                .to_string(),
+        }),
+        InputMode::Message => input_keys_message(selector, combo, focus_first),
     }
-    let inputs = combo_inputs(combo)?;
-
-    debug!(
-        combo,
-        focus_first,
-        input_count = inputs.len(),
-        target = ?window.as_ref().map(|w| w.hwnd.clone()),
-        "sending key combo"
-    );
-
-    send_inputs(&inputs, "keys")?;
-
-    Ok(InputActionResult {
-        action: "keys".to_string(),
-        details: combo.to_string(),
-        window,
-    })
 }
 
 #[instrument(skip(selector, steps))]
@@ -269,37 +246,22 @@ pub fn input_sequence(
     selector: Option<&WindowSelector>,
     steps: &[String],
     focus_first: bool,
+    mode: InputMode,
 ) -> WinrResult<InputActionResult> {
-    let window = resolve_input_target(selector, focus_first)?;
-    if let Some(window) = &window {
-        enforce_input_permission(window, "input_sequence")?;
-        enforce_integrity_level_for_pid(window.pid, "input_sequence")?;
-    }
-    let mut inputs = Vec::new();
-
-    for step in steps {
-        if let Some(text) = step.strip_prefix("text:") {
-            inputs.extend(unicode_inputs(text));
-        } else {
-            inputs.extend(combo_inputs(step)?);
-        }
-    }
-
     debug!(
-        step_count = steps.len(),
-        input_count = inputs.len(),
+        mode = mode.as_str(),
         focus_first,
-        target = ?window.as_ref().map(|w| w.hwnd.clone()),
-        "sending key sequence"
+        step_count = steps.len(),
+        "dispatching input sequence"
     );
-
-    send_inputs(&inputs, "sequence")?;
-
-    Ok(InputActionResult {
-        action: "sequence".to_string(),
-        details: steps.join(", "),
-        window,
-    })
+    match mode {
+        InputMode::Foreground => input_sequence_foreground(selector, steps, focus_first),
+        InputMode::Uia => Err(WinrError::Unsupported {
+            message: "input_mode=uia is supported only for text input in this milestone"
+                .to_string(),
+        }),
+        InputMode::Message => input_sequence_message(selector, steps, focus_first),
+    }
 }
 
 #[instrument]
@@ -325,6 +287,7 @@ pub fn mouse_click(
 
     Ok(InputActionResult {
         action: "mouse_click".to_string(),
+        mode: InputMode::Foreground,
         details: format!("button={}", button.as_str()),
         window: None,
     })
@@ -379,6 +342,7 @@ pub fn mouse_click_window(
 
     Ok(InputActionResult {
         action: "mouse_click_window".to_string(),
+        mode: InputMode::Foreground,
         details: format!("button={} x={} y={}", button.as_str(), x, y),
         window: Some(window),
     })
@@ -951,6 +915,553 @@ impl MouseButton {
     }
 }
 
+#[derive(Debug, Clone)]
+struct MessageTarget {
+    hwnd: HWND,
+    hwnd_formatted: String,
+    class_name: String,
+    source: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedKeyCombo {
+    modifiers: Vec<VIRTUAL_KEY>,
+    key: VIRTUAL_KEY,
+    primary_char: Option<u16>,
+}
+
+fn input_text_foreground(
+    selector: Option<&WindowSelector>,
+    text: &str,
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    let window = resolve_input_target(selector, focus_first)?;
+    if let Some(window) = &window {
+        enforce_input_permission(window, "input_text")?;
+        enforce_integrity_level_for_pid(window.pid, "input_text")?;
+    }
+    let inputs = unicode_inputs(text);
+
+    debug!(
+        text_len = text.encode_utf16().count(),
+        focus_first,
+        target = ?window.as_ref().map(|w| w.hwnd.clone()),
+        "sending foreground text input"
+    );
+
+    send_inputs(&inputs, "text")?;
+
+    Ok(InputActionResult {
+        action: "text".to_string(),
+        mode: InputMode::Foreground,
+        details: text.to_string(),
+        window,
+    })
+}
+
+fn input_text_uia(
+    selector: Option<&WindowSelector>,
+    text: &str,
+    _focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    let selector = selector.ok_or_else(|| WinrError::Unsupported {
+        message: "input_mode=uia requires a selector for a target window".to_string(),
+    })?;
+    let result = uia::uia_set_text_auto(selector, text)?;
+
+    Ok(InputActionResult {
+        action: "text".to_string(),
+        mode: InputMode::Uia,
+        details: text.to_string(),
+        window: Some(result.window),
+    })
+}
+
+fn input_text_message(
+    selector: Option<&WindowSelector>,
+    text: &str,
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    if focus_first {
+        trace!("input_mode=message ignores focus_first=true");
+    }
+
+    let window = resolve_nonforeground_input_target(selector)?;
+    enforce_input_permission(&window, "input_text_message")?;
+    enforce_integrity_level_for_pid(window.pid, "input_text_message")?;
+    let target = resolve_message_target(&window)?;
+
+    debug!(
+        window = %window.hwnd,
+        target = %target.hwnd_formatted,
+        class = %target.class_name,
+        source = target.source,
+        text_len = text.encode_utf16().count(),
+        "sending message-mode text input"
+    );
+
+    send_message_text(&target, text)?;
+
+    Ok(InputActionResult {
+        action: "text".to_string(),
+        mode: InputMode::Message,
+        details: format!(
+            "{} (target={} class={} source={})",
+            text, target.hwnd_formatted, target.class_name, target.source
+        ),
+        window: Some(window),
+    })
+}
+
+fn input_keys_foreground(
+    selector: Option<&WindowSelector>,
+    combo: &str,
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    let window = resolve_input_target(selector, focus_first)?;
+    if let Some(window) = &window {
+        enforce_input_permission(window, "input_keys")?;
+        enforce_integrity_level_for_pid(window.pid, "input_keys")?;
+    }
+    let inputs = combo_inputs(combo)?;
+
+    debug!(
+        combo,
+        focus_first,
+        input_count = inputs.len(),
+        target = ?window.as_ref().map(|w| w.hwnd.clone()),
+        "sending foreground key combo"
+    );
+
+    send_inputs(&inputs, "keys")?;
+
+    Ok(InputActionResult {
+        action: "keys".to_string(),
+        mode: InputMode::Foreground,
+        details: combo.to_string(),
+        window,
+    })
+}
+
+fn input_keys_message(
+    selector: Option<&WindowSelector>,
+    combo: &str,
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    if focus_first {
+        trace!("input_mode=message ignores focus_first=true");
+    }
+
+    let window = resolve_nonforeground_input_target(selector)?;
+    enforce_input_permission(&window, "input_keys_message")?;
+    enforce_integrity_level_for_pid(window.pid, "input_keys_message")?;
+    let target = resolve_message_target(&window)?;
+    let combo = parse_key_combo(combo)?;
+
+    debug!(
+        window = %window.hwnd,
+        target = %target.hwnd_formatted,
+        class = %target.class_name,
+        source = target.source,
+        modifiers = combo.modifiers.len(),
+        primary_char = ?combo.primary_char,
+        "sending message-mode key combo"
+    );
+
+    send_message_combo(&target, &combo)?;
+
+    Ok(InputActionResult {
+        action: "keys".to_string(),
+        mode: InputMode::Message,
+        details: format!(
+            "{} (target={} class={} source={})",
+            combo_to_string(&combo),
+            target.hwnd_formatted,
+            target.class_name,
+            target.source
+        ),
+        window: Some(window),
+    })
+}
+
+fn input_sequence_foreground(
+    selector: Option<&WindowSelector>,
+    steps: &[String],
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    let window = resolve_input_target(selector, focus_first)?;
+    if let Some(window) = &window {
+        enforce_input_permission(window, "input_sequence")?;
+        enforce_integrity_level_for_pid(window.pid, "input_sequence")?;
+    }
+    let mut inputs = Vec::new();
+
+    for step in steps {
+        if let Some(text) = step.strip_prefix("text:") {
+            inputs.extend(unicode_inputs(text));
+        } else {
+            inputs.extend(combo_inputs(step)?);
+        }
+    }
+
+    debug!(
+        step_count = steps.len(),
+        input_count = inputs.len(),
+        focus_first,
+        target = ?window.as_ref().map(|w| w.hwnd.clone()),
+        "sending foreground key sequence"
+    );
+
+    send_inputs(&inputs, "sequence")?;
+
+    Ok(InputActionResult {
+        action: "sequence".to_string(),
+        mode: InputMode::Foreground,
+        details: steps.join(", "),
+        window,
+    })
+}
+
+fn input_sequence_message(
+    selector: Option<&WindowSelector>,
+    steps: &[String],
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    if focus_first {
+        trace!("input_mode=message ignores focus_first=true");
+    }
+
+    let window = resolve_nonforeground_input_target(selector)?;
+    enforce_input_permission(&window, "input_sequence_message")?;
+    enforce_integrity_level_for_pid(window.pid, "input_sequence_message")?;
+    let target = resolve_message_target(&window)?;
+
+    for step in steps {
+        if let Some(text) = step.strip_prefix("text:") {
+            send_message_text(&target, text)?;
+        } else {
+            let combo = parse_key_combo(step).map_err(|error| match error {
+                WinrError::Unsupported { message } => WinrError::Unsupported {
+                    message: format!("message input sequence step '{step}' is unsupported: {message}"),
+                },
+                other => other,
+            })?;
+            send_message_combo(&target, &combo)?;
+        }
+    }
+
+    Ok(InputActionResult {
+        action: "sequence".to_string(),
+        mode: InputMode::Message,
+        details: format!(
+            "{} (target={} class={} source={})",
+            steps.join(", "),
+            target.hwnd_formatted,
+            target.class_name,
+            target.source
+        ),
+        window: Some(window),
+    })
+}
+
+fn resolve_nonforeground_input_target(selector: Option<&WindowSelector>) -> WinrResult<WindowInfo> {
+    match selector {
+        Some(selector) => window_info(selector),
+        None => foreground_window(),
+    }
+}
+
+fn resolve_message_target(window: &WindowInfo) -> WinrResult<MessageTarget> {
+    classify_message_support(window)?;
+
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+    let thread_id = unsafe { GetWindowThreadProcessId(hwnd, None) };
+
+    if let Some(target) = focused_message_target(hwnd, thread_id)? {
+        return Ok(target);
+    }
+
+    let mut children = enumerate_child_targets(hwnd)?;
+    children.sort_by_key(|target| (!is_edit_like_class(&target.class_name), target.class_name.clone()));
+
+    if let Some(target) = children
+        .into_iter()
+        .find(|candidate| is_edit_like_class(&candidate.class_name))
+    {
+        return Ok(target);
+    }
+
+    if is_edit_like_class(&window.class_name) {
+        return Ok(MessageTarget {
+            hwnd,
+            hwnd_formatted: window.hwnd.clone(),
+            class_name: window.class_name.clone(),
+            source: "top_level",
+        });
+    }
+
+    Err(WinrError::Unsupported {
+        message: format!(
+            "message mode could not find a suitable classic child control inside {} ({})",
+            window.title, window.class_name
+        ),
+    })
+}
+
+fn focused_message_target(hwnd: HWND, thread_id: u32) -> WinrResult<Option<MessageTarget>> {
+    if thread_id == 0 {
+        return Ok(None);
+    }
+
+    let mut info = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+
+    if unsafe { GetGUIThreadInfo(thread_id, &mut info) }.is_err() || info.hwndFocus.0.is_null() {
+        return Ok(None);
+    }
+
+    let focused = info.hwndFocus;
+    let same_tree = unsafe { IsChild(hwnd, focused) }.as_bool()
+        || unsafe { GetAncestor(focused, GA_ROOT) } == hwnd
+        || focused == hwnd;
+    if !same_tree {
+        return Ok(None);
+    }
+
+    let class_name = class_name(focused)?;
+    Ok(Some(MessageTarget {
+        hwnd: focused,
+        hwnd_formatted: format_hwnd(hwnd_value(focused)),
+        class_name,
+        source: "focused_child",
+    }))
+}
+
+fn enumerate_child_targets(hwnd: HWND) -> WinrResult<Vec<MessageTarget>> {
+    let mut handles = Vec::new();
+    unsafe {
+        let _ = EnumChildWindows(
+            Some(hwnd),
+            Some(enum_windows_proc),
+            LPARAM((&mut handles as *mut Vec<HWND>) as isize),
+        );
+    }
+
+    handles
+        .into_iter()
+        .filter(|child| unsafe { IsWindowVisible(*child) }.as_bool())
+        .map(|child| {
+            Ok(MessageTarget {
+                hwnd: child,
+                hwnd_formatted: format_hwnd(hwnd_value(child)),
+                class_name: class_name(child)?,
+                source: "child",
+            })
+        })
+        .collect()
+}
+
+fn classify_message_support(window: &WindowInfo) -> WinrResult<()> {
+    let class_name = window.class_name.to_ascii_lowercase();
+    let exe = window
+        .exe
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    let unsupported = class_name.starts_with("chrome_widgetwin")
+        || class_name.contains("xamlexplorer")
+        || class_name.contains("winuidesktop")
+        || class_name.contains("windows.ui")
+        || class_name == "applicationframewindow"
+        || matches!(
+            exe.as_str(),
+            "code.exe"
+                | "codex.exe"
+                | "msedge.exe"
+                | "chrome.exe"
+                | "firefox.exe"
+                | "applicationframehost.exe"
+        );
+
+    if unsupported {
+        return Err(WinrError::Unsupported {
+            message: format!(
+                "message mode is app-dependent and is not supported for '{}' ({})",
+                window.title, window.class_name
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn is_edit_like_class(class_name: &str) -> bool {
+    let class_name = class_name.to_ascii_lowercase();
+    class_name == "edit"
+        || class_name.contains("edit")
+        || class_name.contains("richedit")
+        || class_name == "scintilla"
+}
+
+fn send_message_text(target: &MessageTarget, text: &str) -> WinrResult<()> {
+    if is_edit_like_class(&target.class_name) {
+        let wide = text.encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+        let current_len = unsafe {
+            SendMessageW(target.hwnd, WM_GETTEXTLENGTH, None, None)
+        }
+        .0;
+
+        if target.class_name.eq_ignore_ascii_case("Edit") && current_len == 0 {
+            trace!(target = %target.hwnd_formatted, "sending WM_SETTEXT to classic edit control");
+            let result = unsafe {
+                SendMessageW(
+                    target.hwnd,
+                    WM_SETTEXT,
+                    None,
+                    Some(LPARAM(wide.as_ptr() as isize)),
+                )
+            };
+            if result.0 == 0 {
+                return Err(WinrError::Unsupported {
+                    message: format!("WM_SETTEXT failed for {}", target.hwnd_formatted),
+                });
+            }
+            return Ok(());
+        }
+
+        trace!(target = %target.hwnd_formatted, "sending EM_REPLACESEL to edit-like control");
+        unsafe {
+            SendMessageW(
+                target.hwnd,
+                EM_SETSEL,
+                Some(WPARAM(usize::MAX)),
+                Some(LPARAM(-1)),
+            );
+            SendMessageW(
+                target.hwnd,
+                EM_REPLACESEL,
+                Some(WPARAM(1)),
+                Some(LPARAM(wide.as_ptr() as isize)),
+            );
+        }
+        return Ok(());
+    }
+
+    for code_unit in text.encode_utf16() {
+        send_message_char(target.hwnd, code_unit);
+    }
+    Ok(())
+}
+
+fn send_message_combo(target: &MessageTarget, combo: &ParsedKeyCombo) -> WinrResult<()> {
+    for modifier in &combo.modifiers {
+        send_message_key(target.hwnd, WM_KEYDOWN, *modifier);
+    }
+    send_message_key(target.hwnd, WM_KEYDOWN, combo.key);
+    if let Some(code_unit) = combo.primary_char {
+        send_message_char(target.hwnd, code_unit);
+    }
+    send_message_key(target.hwnd, WM_KEYUP, combo.key);
+    for modifier in combo.modifiers.iter().rev() {
+        send_message_key(target.hwnd, WM_KEYUP, *modifier);
+    }
+    Ok(())
+}
+
+fn send_message_key(hwnd: HWND, message: u32, key: VIRTUAL_KEY) {
+    trace!(hwnd = %format_hwnd(hwnd_value(hwnd)), message, key = key.0, "sending key message");
+    unsafe {
+        SendMessageW(
+            hwnd,
+            message,
+            Some(WPARAM(key.0 as usize)),
+            Some(LPARAM(1)),
+        );
+    }
+}
+
+fn send_message_char(hwnd: HWND, code_unit: u16) {
+    trace!(hwnd = %format_hwnd(hwnd_value(hwnd)), code_unit, "sending WM_CHAR");
+    unsafe {
+        SendMessageW(
+            hwnd,
+            WM_CHAR,
+            Some(WPARAM(code_unit as usize)),
+            Some(LPARAM(1)),
+        );
+    }
+}
+
+fn parse_key_combo(combo: &str) -> WinrResult<ParsedKeyCombo> {
+    let mut modifiers = Vec::new();
+    let mut key = None;
+    let mut primary_char = None;
+
+    for raw_part in combo.split('+') {
+        let part = raw_part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        if let Some(modifier) = named_modifier(part) {
+            if !modifiers.contains(&modifier) {
+                modifiers.push(modifier);
+            }
+            continue;
+        }
+
+        if key.is_some() {
+            return Err(WinrError::Unsupported {
+                message: format!("combo '{combo}' contains more than one primary key"),
+            });
+        }
+
+        let (vk, implicit_modifiers) = parse_key_token(part)?;
+        for modifier in implicit_modifiers {
+            if !modifiers.contains(&modifier) {
+                modifiers.push(modifier);
+            }
+        }
+        if part.chars().count() == 1
+            && !modifiers
+                .iter()
+                .any(|modifier| matches!(modifier.0, value if value == VK_CONTROL.0 || value == VK_MENU.0 || value == VK_LWIN.0))
+        {
+            primary_char = part.encode_utf16().next();
+        }
+        key = Some(vk);
+    }
+
+    let key = key.ok_or_else(|| WinrError::Unsupported {
+        message: format!("combo '{combo}' does not contain a primary key"),
+    })?;
+
+    Ok(ParsedKeyCombo {
+        modifiers,
+        key,
+        primary_char,
+    })
+}
+
+fn combo_to_string(combo: &ParsedKeyCombo) -> String {
+    let mut parts = combo
+        .modifiers
+        .iter()
+        .map(|modifier| match modifier.0 {
+            value if value == VK_CONTROL.0 => "ctrl".to_string(),
+            value if value == VK_MENU.0 => "alt".to_string(),
+            value if value == VK_SHIFT.0 => "shift".to_string(),
+            value if value == VK_LWIN.0 => "win".to_string(),
+            _ => format!("vk-{}", modifier.0),
+        })
+        .collect::<Vec<_>>();
+    parts.push(format!("vk-{}", combo.key.0));
+    parts.join("+")
+}
+
 fn resolve_input_target(
     selector: Option<&WindowSelector>,
     focus_first: bool,
@@ -1241,5 +1752,35 @@ mod tests {
     fn mouse_click_requires_both_coordinates() {
         let error = mouse_click(MouseButton::Left, Some(10), None).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn message_combo_parser_supports_ctrl_a() {
+        let parsed = parse_key_combo("ctrl+a").expect("combo should parse");
+        assert_eq!(parsed.modifiers.len(), 1);
+        assert!(parsed.primary_char.is_none());
+    }
+
+    #[test]
+    fn message_combo_parser_rejects_multiple_primary_keys() {
+        let error = parse_key_combo("a+b").unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn message_support_rejects_chromium_targets() {
+        let mut window = make_window("0x0000000000000001", "Edge");
+        window.class_name = "Chrome_WidgetWin_1".to_string();
+        window.exe = Some("msedge.exe".to_string());
+
+        let error = classify_message_support(&window).unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn edit_like_class_detection_handles_common_controls() {
+        assert!(is_edit_like_class("Edit"));
+        assert!(is_edit_like_class("RichEditD2DPT"));
+        assert!(!is_edit_like_class("Chrome_WidgetWin_1"));
     }
 }
