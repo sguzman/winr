@@ -1,9 +1,10 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub type WinrResult<T> = Result<T, WinrError>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,
@@ -11,7 +12,7 @@ pub struct Rect {
     pub bottom: i32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WindowSelector {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hwnd: Option<String>,
@@ -55,7 +56,7 @@ impl WindowSelector {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WindowInfo {
     pub hwnd: String,
     pub pid: u32,
@@ -69,13 +70,13 @@ pub struct WindowInfo {
     pub rect: Rect,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WindowActionResult {
     pub action: String,
     pub window: WindowInfo,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ScreenshotBackend {
     Auto,
@@ -93,7 +94,7 @@ impl ScreenshotBackend {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ScreenshotResult {
     pub path: String,
     pub width: u32,
@@ -101,7 +102,7 @@ pub struct ScreenshotResult {
     pub backend: ScreenshotBackend,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct InputActionResult {
     pub action: String,
     pub details: String,
@@ -109,7 +110,7 @@ pub struct InputActionResult {
     pub window: Option<WindowInfo>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SuccessResponse<T> {
     pub ok: bool,
     pub data: T,
@@ -121,13 +122,144 @@ impl<T> SuccessResponse<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ErrorResponse {
     pub ok: bool,
     pub error: String,
     pub message: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub matches: Vec<WindowInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub uia_matches: Vec<UiaElementInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UiaTreeMode {
+    Control,
+    Raw,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaSelector {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub class_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub localized_control_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control_type: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+impl UiaSelector {
+    pub fn has_criteria(&self) -> bool {
+        self.automation_id.is_some()
+            || self.name.is_some()
+            || self.class_name.is_some()
+            || self.localized_control_type.is_some()
+            || self.control_type.is_some()
+            || self.enabled.is_some()
+    }
+
+    pub fn matches(&self, node: &UiaElementInfo) -> bool {
+        self.automation_id.as_ref().is_none_or(|value| {
+            node.automation_id
+                .as_ref()
+                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(value))
+        }) && self.name.as_ref().is_none_or(|value| {
+            contains_case_insensitive(node.name.as_deref().unwrap_or_default(), value)
+        }) && self.class_name.as_ref().is_none_or(|value| {
+            node.class_name
+                .as_ref()
+                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(value))
+        }) && self.localized_control_type.as_ref().is_none_or(|value| {
+            node.localized_control_type
+                .as_ref()
+                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(value))
+        }) && self
+            .control_type
+            .is_none_or(|value| node.control_type == Some(value))
+            && self.enabled.is_none_or(|value| node.enabled == Some(value))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaElementInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hwnd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub class_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub localized_control_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control_type: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rect: Option<Rect>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub children: Vec<UiaElementInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaTreeRequest {
+    pub window: WindowSelector,
+    #[serde(default)]
+    pub mode: Option<UiaTreeMode>,
+    #[serde(default)]
+    pub max_depth: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaTreeResponse {
+    pub window: WindowInfo,
+    pub mode: UiaTreeMode,
+    pub root: UiaElementInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaFindRequest {
+    pub window: WindowSelector,
+    pub element: UiaSelector,
+    #[serde(default)]
+    pub mode: Option<UiaTreeMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaFindResponse {
+    pub window: WindowInfo,
+    pub matches: Vec<UiaElementInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaActionRequest {
+    pub window: WindowSelector,
+    pub element: UiaSelector,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaSetTextRequest {
+    pub window: WindowSelector,
+    pub element: UiaSelector,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UiaActionResult {
+    pub action: String,
+    pub window: WindowInfo,
+    pub element: UiaElementInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -147,6 +279,13 @@ pub enum WinrError {
     PermissionDenied { reason: String },
     #[error("capture failed with backend {backend}: {message}")]
     CaptureFailed { backend: String, message: String },
+    #[error("no UI Automation elements matched the provided selector")]
+    UiaElementNotFound,
+    #[error("{count} UI Automation elements matched the provided selector")]
+    AmbiguousUiaElement {
+        count: usize,
+        matches: Vec<UiaElementInfo>,
+    },
     #[error("unsupported operation: {message}")]
     Unsupported { message: String },
 }
@@ -160,6 +299,8 @@ impl WinrError {
             Self::IntegrityLevelDenied => "IntegrityLevelDenied",
             Self::PermissionDenied { .. } => "PermissionDenied",
             Self::CaptureFailed { .. } => "CaptureFailed",
+            Self::UiaElementNotFound => "UiaElementNotFound",
+            Self::AmbiguousUiaElement { .. } => "AmbiguousUiaElement",
             Self::Unsupported { .. } => "Unsupported",
         }
     }
@@ -169,12 +310,22 @@ impl WinrError {
             Self::AmbiguousWindow { matches, .. } => matches.clone(),
             _ => Vec::new(),
         };
+        let uia_matches = match self {
+            Self::AmbiguousUiaElement { matches, .. } => matches.clone(),
+            _ => Vec::new(),
+        };
 
         ErrorResponse {
             ok: false,
             error: self.code().to_string(),
-            message: self.to_string(),
+            message: match self {
+                Self::AmbiguousUiaElement { count, .. } => {
+                    format!("{count} UI Automation elements matched the provided selector")
+                }
+                _ => self.to_string(),
+            },
             matches,
+            uia_matches,
         }
     }
 }
@@ -266,6 +417,28 @@ mod tests {
         let json = serde_json::to_string(&error.to_error_response()).unwrap();
         assert!(json.contains("\"error\":\"AmbiguousWindow\""));
         assert!(json.contains("\"matches\""));
+    }
+
+    #[test]
+    fn serializes_uia_error_response() {
+        let error = WinrError::AmbiguousUiaElement {
+            count: 1,
+            matches: vec![UiaElementInfo {
+                hwnd: Some("0x0000000000001234".to_string()),
+                automation_id: Some("username".to_string()),
+                name: Some("Username".to_string()),
+                class_name: Some("Edit".to_string()),
+                localized_control_type: Some("edit".to_string()),
+                control_type: Some(50004),
+                enabled: Some(true),
+                rect: None,
+                children: Vec::new(),
+            }],
+        };
+
+        let json = serde_json::to_string(&error.to_error_response()).unwrap();
+        assert!(json.contains("\"error\":\"AmbiguousUiaElement\""));
+        assert!(json.contains("\"uia_matches\""));
     }
 
     #[test]

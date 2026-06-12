@@ -1,23 +1,24 @@
 [package]
-name = "winr-cli"
+name = "winr-mcp"
 version.workspace = true
 edition.workspace = true
-default-run = "winr"
+
+[lib]
+name = "winr_mcp"
+path = "src/lib.rs"
 
 [[bin]]
-name = "winr"
+name = "winr-mcp"
 path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-clap.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 winr-core = { path = "../winr-core" }
-winr-mcp = { path = "../winr-mcp" }
 winr-types = { path = "../winr-types" }
-
-[dev-dependencies]
-serde_json.workspace = true

@@ -1,3 +1,5 @@
+mod uia;
+
 use std::{path::Path, thread, time::Duration};
 
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
@@ -33,6 +35,8 @@ use winr_types::{
     InputActionResult, Rect, ScreenshotBackend, ScreenshotResult, WindowActionResult, WindowInfo,
     WindowSelector, WinrError, WinrResult, format_hwnd,
 };
+
+pub use uia::{uia_find, uia_invoke, uia_set_text, uia_tree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ListWindowsOptions {

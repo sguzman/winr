@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 image.workspace = true
+serde.workspace = true
 tracing.workspace = true
 windows.workspace = true
 winr-types = { path = "../winr-types" }

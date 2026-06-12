@@ -34,15 +34,15 @@
 
 ## UI Automation
 
-- [ ] Inspect UI Automation trees
-- [ ] Find UI elements by accessible metadata
-- [ ] Invoke controls and set text through UI Automation
+- [x] Inspect UI Automation trees
+- [x] Find UI elements by accessible metadata
+- [x] Invoke controls and set text through UI Automation
 
 ## MCP
 
-- [ ] Add an MCP server crate
-- [ ] Expose a safe initial tool surface
-- [ ] Reuse `winr-core` behavior without direct Win32 calls in the MCP layer
+- [x] Add an MCP server crate
+- [x] Expose a safe initial tool surface
+- [x] Reuse `winr-core` behavior without direct Win32 calls in the MCP layer
 
 ## Safety model
 
@@ -55,5 +55,6 @@
 - [x] Create a comprehensive `README.md`
 - [x] Add unit tests for selectors, HWND parsing, and JSON serialization
 - [x] Add CLI integration tests for JSON output and error flows
+- [x] Document UI Automation and MCP workflows
 - [ ] Add screenshot and input validation coverage
-- [ ] Document future safety and MCP workflows in more depth
+- [ ] Document future safety policy and permission workflows in more depth

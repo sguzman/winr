@@ -10,10 +10,12 @@ use winr_core::{
     ListWindowsOptions, MouseButton, close_window, focus_window, foreground_window, input_keys,
     input_sequence, input_text, list_windows, maximize_window, minimize_window, mouse_click,
     mouse_click_window, move_window, resize_window, restore_window, screenshot_desktop,
-    screenshot_window, window_info,
+    screenshot_window, uia_find, uia_invoke, uia_set_text, uia_tree, window_info,
 };
 use winr_types::{
     ErrorResponse, InputActionResult, ScreenshotBackend, ScreenshotResult, SuccessResponse,
+    UiaActionRequest, UiaActionResult, UiaElementInfo, UiaFindRequest, UiaFindResponse,
+    UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest, UiaTreeResponse,
     WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
 };
 
@@ -71,6 +73,14 @@ enum RootCommand {
         #[command(subcommand)]
         command: ScreenshotCommand,
     },
+    Uia {
+        #[command(subcommand)]
+        command: UiaCommand,
+    },
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
+    },
     Window {
         #[command(subcommand)]
         command: WindowCommand,
@@ -112,6 +122,19 @@ enum WindowCommand {
     Move(MoveArgs),
     Resize(ResizeArgs),
     Close(SelectorArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum UiaCommand {
+    Tree(UiaTreeArgs),
+    Find(UiaFindArgs),
+    Invoke(UiaActionArgs),
+    SetText(UiaSetTextArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommand {
+    Serve,
 }
 
 #[derive(Debug, Args)]
@@ -251,6 +274,88 @@ struct MouseClickWindowArgs {
     focus_first: bool,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum UiaTreeModeArg {
+    Control,
+    Raw,
+}
+
+impl From<UiaTreeModeArg> for UiaTreeMode {
+    fn from(value: UiaTreeModeArg) -> Self {
+        match value {
+            UiaTreeModeArg::Control => UiaTreeMode::Control,
+            UiaTreeModeArg::Raw => UiaTreeMode::Raw,
+        }
+    }
+}
+
+#[derive(Debug, Args, Clone, Default)]
+struct UiaSelectorArgs {
+    #[arg(long = "automation-id")]
+    automation_id: Option<String>,
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long = "uia-class")]
+    class_name: Option<String>,
+    #[arg(long = "control-kind")]
+    localized_control_type: Option<String>,
+    #[arg(long = "control-type")]
+    control_type: Option<i32>,
+    #[arg(long)]
+    enabled: Option<bool>,
+}
+
+impl UiaSelectorArgs {
+    fn into_selector(self) -> UiaSelector {
+        UiaSelector {
+            automation_id: self.automation_id,
+            name: self.name,
+            class_name: self.class_name,
+            localized_control_type: self.localized_control_type,
+            control_type: self.control_type,
+            enabled: self.enabled,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct UiaTreeArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long, value_enum, default_value = "control")]
+    mode: UiaTreeModeArg,
+    #[arg(long, default_value_t = 4)]
+    max_depth: u32,
+}
+
+#[derive(Debug, Args)]
+struct UiaFindArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[command(flatten)]
+    element: UiaSelectorArgs,
+    #[arg(long, value_enum, default_value = "control")]
+    mode: UiaTreeModeArg,
+}
+
+#[derive(Debug, Args)]
+struct UiaActionArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[command(flatten)]
+    element: UiaSelectorArgs,
+}
+
+#[derive(Debug, Args)]
+struct UiaSetTextArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[command(flatten)]
+    element: UiaSelectorArgs,
+    #[arg(long)]
+    text: String,
+}
+
 #[derive(Debug, Args, Clone, Default)]
 struct SelectorArgs {
     #[arg(long, value_parser = parse_hwnd_arg, help = "Window handle in hexadecimal")]
@@ -355,6 +460,50 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                 emit(cli.json, &result)
             }
         },
+        RootCommand::Uia { command } => match command {
+            UiaCommand::Tree(args) => {
+                let selector = require_selector(args.selector.into_selector())?;
+                let result = uia_tree(&UiaTreeRequest {
+                    window: selector,
+                    mode: Some(args.mode.into()),
+                    max_depth: Some(args.max_depth),
+                })?;
+                emit(cli.json, &result)
+            }
+            UiaCommand::Find(args) => {
+                let window = require_selector(args.selector.into_selector())?;
+                let element = require_uia_selector(args.element.into_selector())?;
+                let result = uia_find(&UiaFindRequest {
+                    window,
+                    element,
+                    mode: Some(args.mode.into()),
+                })?;
+                emit(cli.json, &result)
+            }
+            UiaCommand::Invoke(args) => {
+                let window = require_selector(args.selector.into_selector())?;
+                let element = require_uia_selector(args.element.into_selector())?;
+                let result = uia_invoke(&UiaActionRequest { window, element })?;
+                emit(cli.json, &result)
+            }
+            UiaCommand::SetText(args) => {
+                let window = require_selector(args.selector.into_selector())?;
+                let element = require_uia_selector(args.element.into_selector())?;
+                let result = uia_set_text(&UiaSetTextRequest {
+                    window,
+                    element,
+                    text: args.text,
+                })?;
+                emit(cli.json, &result)
+            }
+        },
+        RootCommand::Mcp { command } => match command {
+            McpCommand::Serve => winr_mcp::serve_stdio_blocking().map_err(|error| {
+                WinrError::Unsupported {
+                    message: format!("failed to serve MCP over stdio: {error}"),
+                }
+            }),
+        },
         RootCommand::Window { command } => match command {
             WindowCommand::Info(args) => {
                 let selector = require_selector(args.into_selector())?;
@@ -420,6 +569,16 @@ fn require_selector(selector: WindowSelector) -> Result<WindowSelector, WinrErro
     } else {
         Err(WinrError::Unsupported {
             message: "at least one selector flag is required".to_string(),
+        })
+    }
+}
+
+fn require_uia_selector(selector: UiaSelector) -> Result<UiaSelector, WinrError> {
+    if selector.has_criteria() {
+        Ok(selector)
+    } else {
+        Err(WinrError::Unsupported {
+            message: "at least one UI Automation selector flag is required".to_string(),
         })
     }
 }
@@ -525,6 +684,80 @@ impl HumanOutput for InputActionResult {
         }
         Ok(())
     }
+}
+
+impl HumanOutput for UiaTreeResponse {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "window: {}", self.window.hwnd).map_err(io_error)?;
+        writeln!(
+            writer,
+            "mode: {}",
+            match self.mode {
+                UiaTreeMode::Control => "control",
+                UiaTreeMode::Raw => "raw",
+            }
+        )
+        .map_err(io_error)?;
+        write_uia_node(writer, &self.root, 0)
+    }
+}
+
+impl HumanOutput for UiaFindResponse {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "window: {}", self.window.hwnd).map_err(io_error)?;
+        for node in &self.matches {
+            write_uia_node(writer, node, 0)?;
+        }
+        Ok(())
+    }
+}
+
+impl HumanOutput for UiaActionResult {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "action: {}", self.action).map_err(io_error)?;
+        writeln!(writer, "window: {}", self.window.hwnd).map_err(io_error)?;
+        if let Some(details) = &self.details {
+            writeln!(writer, "details: {}", details).map_err(io_error)?;
+        }
+        write_uia_node(writer, &self.element, 0)
+    }
+}
+
+fn write_uia_node<W: Write>(
+    writer: &mut W,
+    node: &UiaElementInfo,
+    depth: usize,
+) -> Result<(), WinrError> {
+    let indent = "  ".repeat(depth);
+    writeln!(
+        writer,
+        "{indent}- name=\"{}\" automation_id=\"{}\" class=\"{}\" kind=\"{}\" control_type={} enabled={} hwnd={}{}",
+        node.name.as_deref().unwrap_or(""),
+        node.automation_id.as_deref().unwrap_or(""),
+        node.class_name.as_deref().unwrap_or(""),
+        node.localized_control_type.as_deref().unwrap_or(""),
+        node.control_type
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "<unknown>".to_string()),
+        node.enabled
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "<unknown>".to_string()),
+        node.hwnd.as_deref().unwrap_or(""),
+        match node.rect {
+            Some(rect) => format!(
+                " rect=({}, {}, {}, {})",
+                rect.left, rect.top, rect.right, rect.bottom
+            ),
+            None => String::new(),
+        }
+    )
+    .map_err(io_error)?;
+
+    for child in &node.children {
+        write_uia_node(writer, child, depth + 1)?;
+    }
+
+    Ok(())
 }
 
 fn io_error(error: io::Error) -> WinrError {

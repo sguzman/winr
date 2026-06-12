@@ -1,117 +1,109 @@
 # winr
 
-`winr` is a Windows 11 desktop automation toolkit in Rust. The current milestone provides a strong CLI foundation for discovering windows, inspecting metadata, manipulating top-level windows, capturing screenshots, and sending practical foreground input with honest error reporting.
+`winr` is a Rust workspace for Windows 11 desktop automation. It ships a CLI-first core for real window operations, screenshots, foreground input, UI Automation, and a stdio MCP server that reuses the same core behavior.
+
+## Purpose
+
+The project is built around a simple rule: prove the Windows primitives locally from a normal CLI before exposing them to AI agents. `winr` keeps that boundary by putting Windows API work in `winr-core`, shared contracts in `winr-types`, and thin frontends on top.
 
 ## Current capabilities
 
-- Enumerate top-level desktop windows
-- Filter windows by HWND, PID, title substring, class name, and executable name
-- Inspect one resolved window in human-readable or JSON form
-- Report the current foreground window
-- Attempt to focus a selected window
-- Restore, minimize, maximize, move, resize, and close selected windows
+- Enumerate top-level windows
+- Filter windows by `HWND`, PID, title substring, class name, and executable name
+- Inspect the foreground window or one resolved window
+- Focus, restore, minimize, maximize, move, resize, and close windows
 - Capture desktop screenshots with GDI
-- Capture window screenshots with `PrintWindow` or GDI fallback
-- Send text, combos, and small key sequences through `SendInput`
-- Send mouse clicks at the current cursor or client-relative points inside a target window
-- Emit extensive structured logs with `tracing`
+- Capture window screenshots with `PrintWindow` and GDI fallback
+- Send foreground text, key combos, and key sequences through `SendInput`
+- Send screen clicks and window-relative clicks
+- Inspect UI Automation trees
+- Find UI Automation elements by accessible metadata
+- Invoke UIA controls and set UIA-backed text values
+- Expose a safe first MCP tool surface over stdio
+- Emit structured logs with `tracing`
 
-## Project layout
+## Workspace layout
 
-- `crates/winr-types`: shared DTOs, selectors, HWND helpers, and error payloads
-- `crates/winr-core`: Win32-backed window enumeration and focus logic
-- `crates/winr-cli`: the `winr` command-line interface
-- `docs/roadmap.md`: milestone tracker and upcoming work
-- `tmp/project.md`: product spec currently guiding implementation
+- `crates/winr-types`: shared DTOs, selectors, JSON payloads, and error contracts
+- `crates/winr-core`: Win32, screenshot, input, and UI Automation implementation
+- `crates/winr-cli`: the `winr` binary
+- `crates/winr-mcp`: stdio MCP server backed only by `winr-core`
+- `docs/roadmap.md`: checkbox roadmap and milestone tracker
+- `tmp/project.md`: current product spec driving implementation
 
 ## Architecture
 
-`winr` keeps Windows API work in `winr-core` and exposes typed operations to the CLI. The CLI is responsible for argument parsing, log initialization, formatting results, and returning stable JSON contracts.
+`winr-cli` depends only on `winr-core` and `winr-types`. It parses flags, initializes logging, formats output, and never calls raw Win32 APIs directly.
 
-This crate boundary is intentional. Future screenshot, input, UI Automation, and MCP work can reuse the same core behavior instead of re-implementing Win32 calls in multiple frontends.
+`winr-mcp` also depends only on `winr-core` and `winr-types`. MCP tools are wrappers around the same typed core operations used by the CLI, so behavior stays aligned across human and agent usage.
+
+This split leaves room for later safety policy, richer automation, and broader transports without duplicating Windows logic.
 
 ## Windows limitations
 
-`winr` is designed to be honest about Windows foreground restrictions:
+`winr` is intentionally honest about what Windows does and does not allow:
 
-- `SetForegroundWindow` is constrained by Windows focus rules
-- some windows cannot be focused programmatically from another process
-- elevated windows may reject interaction from non-elevated callers
-- minimized and background interaction beyond focus is intentionally out of scope for this milestone
+- `SetForegroundWindow` is subject to Windows focus restrictions
+- elevated or protected targets may reject interaction from a normal process
+- `SendInput` is most reliable after restore and focus
+- background or minimized-window interaction is app-dependent and not treated as universally reliable
+- UI Automation only works when the target application exposes useful accessibility patterns
 
-When focus fails, `winr` returns a structured `ForegroundDenied` or related error instead of pretending the action succeeded.
+When an action cannot be completed cleanly, `winr` returns structured errors such as `ForegroundDenied`, `WindowNotFound`, `AmbiguousWindow`, `UiaElementNotFound`, or `AmbiguousUiaElement`.
 
-## Build and run
+## Build
 
 Requirements:
 
 - Windows 11
-- Rust nightly or stable with edition 2024 support
+- Rust stable with edition 2024 support
 
-Build:
+Verification commands:
 
 ```powershell
 cargo check
 cargo test
+cargo run -p winr-cli -- windows list --json
 ```
 
-Run:
+## Install and run
+
+Run the CLI directly from the workspace:
 
 ```powershell
 cargo run -p winr-cli -- windows list
-cargo run -p winr-cli -- windows list --json
-cargo run -p winr-cli -- windows foreground --json
 cargo run -p winr-cli -- window info --title Notepad --json
 cargo run -p winr-cli -- window focus --hwnd 0x0012034A
-cargo run -p winr-cli -- window restore --title Notepad
-cargo run -p winr-cli -- window move --title Notepad --x 100 --y 100 --width 1280 --height 720
-cargo run -p winr-cli -- screenshot desktop --out target\\desktop.png
-cargo run -p winr-cli -- screenshot window --title Notepad --out target\\notepad.png --backend auto
-cargo run -p winr-cli -- input text --title Notepad "hello world"
-cargo run -p winr-cli -- input keys --title Notepad --combo ctrl+l
-cargo run -p winr-cli -- mouse click-window --title Notepad --x 40 --y 20
 ```
 
-## Command reference
+Run the MCP server over stdio:
 
-List windows:
+```powershell
+cargo run -p winr-cli -- mcp serve
+```
+
+You can also launch the dedicated server binary:
+
+```powershell
+cargo run -p winr-mcp
+```
+
+## Command examples
+
+Window inventory:
 
 ```powershell
 winr windows list
-winr windows list --visible
-winr windows list --exe Code.exe --json
-winr windows list --title Notepad --json
-```
-
-Inspect a single window:
-
-```powershell
-winr window info --hwnd 0x0012034A --json
-winr window info --pid 1234
-winr window info --class Notepad
-```
-
-Get the foreground window:
-
-```powershell
-winr windows foreground
+winr windows list --visible --json
 winr windows foreground --json
-```
-
-Focus a window:
-
-```powershell
-winr window focus --title Notepad
-winr window focus --exe Code.exe --json
+winr window info --title Notepad --json
 ```
 
 Window actions:
 
 ```powershell
+winr window focus --exe notepad.exe
 winr window restore --title Notepad
-winr window minimize --exe Code.exe
-winr window maximize --class CabinetWClass
-winr window move --title Notepad --x 100 --y 100
 winr window move --title Notepad --x 100 --y 100 --width 1280 --height 720
 winr window resize --title Notepad --width 1280 --height 720
 winr window close --hwnd 0x0012034A --json
@@ -121,104 +113,149 @@ Screenshots:
 
 ```powershell
 winr screenshot desktop --out target\desktop.png
-winr screenshot desktop --out target\desktop.jpg --backend gdi
-winr screenshot window --title Notepad --out target\notepad.png
+winr screenshot window --title Notepad --out target\notepad.png --backend auto
 winr screenshot window --title Notepad --out target\notepad.png --backend print-window
-winr screenshot window --exe Code.exe --out target\code.jpg --backend gdi
 ```
 
 Input:
 
 ```powershell
-winr input text "hello world"
 winr input text --title Notepad "hello world"
 winr input keys --title Notepad --combo ctrl+l
 winr input sequence --title Notepad --step ctrl+l --step text:https://example.com --step enter
-winr mouse click --button left
-winr mouse click --button right --x 100 --y 200
+winr mouse click --button left --x 100 --y 200
 winr mouse click-window --title Notepad --x 40 --y 20
+```
+
+UI Automation:
+
+```powershell
+winr uia tree --title Notepad --max-depth 3 --json
+winr uia find --title Notepad --name OK --json
+winr uia invoke --title Calculator --name Equals
+winr uia set-text --title Notepad --uia-class Edit --text "hello from winr"
+```
+
+MCP:
+
+```powershell
+winr mcp serve
+```
+
+## Command tree
+
+```text
+winr
+  windows
+    list
+    foreground
+  window
+    info
+    focus
+    restore
+    minimize
+    maximize
+    move
+    resize
+    close
+  screenshot
+    desktop
+    window
+  input
+    text
+    keys
+    sequence
+  mouse
+    click
+    click-window
+  uia
+    tree
+    find
+    invoke
+    set-text
+  mcp
+    serve
 ```
 
 ## JSON output
 
-Successful commands return:
+Success payloads always use:
 
 ```json
 {
   "ok": true,
-  "data": {
-    "hwnd": "0x000000000012034A"
-  }
+  "data": {}
 }
 ```
 
-Failed commands return:
+Error payloads always use:
 
 ```json
 {
   "ok": false,
   "error": "WindowNotFound",
   "message": "no windows matched the provided selector",
-  "matches": []
+  "matches": [],
+  "uia_matches": []
 }
 ```
 
-`HWND` values are always serialized as uppercase hexadecimal strings.
+Notes:
+
+- `HWND` values are serialized as uppercase hexadecimal strings like `0x000000000012034A`
+- ambiguous top-level window selection uses `matches`
+- ambiguous UIA selection uses `uia_matches`
+- MCP tools return the same structured success and error shapes in `structuredContent`
 
 ## Logging
 
-`winr` uses `tracing` throughout the CLI and core library. By default, it logs at `info`. Increase verbosity with `RUST_LOG`.
+`winr` uses `tracing` throughout startup, selector resolution, Win32 calls, screenshot backend selection, input routing, UIA operations, and MCP responses.
 
-Examples:
+Default logging is `info`. Raise verbosity with `RUST_LOG`.
 
 ```powershell
 $env:RUST_LOG = "debug"
 cargo run -p winr-cli -- windows list --json
 
-$env:RUST_LOG = "winr_core=trace,winr_cli=debug"
-cargo run -p winr-cli -- window focus --title Notepad
+$env:RUST_LOG = "winr_core=trace,winr_cli=debug,winr_mcp=debug"
+cargo run -p winr-cli -- uia tree --title Notepad --max-depth 2
 ```
 
-The current logging coverage includes:
+## MCP tool surface
 
-- startup and parsed command routing
-- selector normalization and match counts
-- Win32 enumeration and foreground checks
-- focus attempts and failures
-- screenshot backend selection and fallback behavior
-- SendInput event generation and targeted input routing
-- JSON error conversion
+The current MCP server exposes:
+
+- `windows_list`
+- `window_info`
+- `window_focus`
+- `window_restore`
+- `window_move`
+- `window_screenshot`
+- `input_send_keys`
+- `input_send_text`
+- `mouse_click`
+- `uia_tree`
+- `uia_find`
+- `uia_invoke`
+- `uia_set_text`
+
+The MCP layer does not expose arbitrary shell execution.
 
 ## Roadmap summary
 
-The current milestone delivers the CLI-first foundation. Planned follow-up work includes:
+Completed so far:
 
-- screenshots for desktop and windows
-- keyboard and mouse input
-- Windows UI Automation support
-- permissions and safety policy
-- MCP server integration after the core behavior is proven locally
+- CLI-first workspace foundation
+- window inventory and actions
+- screenshots
+- foreground input
+- UI Automation
+- stdio MCP server
 
-The current command tree is:
+Still ahead:
 
-```text
-winr windows list
-winr windows foreground
-winr input text
-winr input keys
-winr input sequence
-winr mouse click
-winr mouse click-window
-winr screenshot desktop
-winr screenshot window
-winr window info
-winr window focus
-winr window restore
-winr window minimize
-winr window maximize
-winr window move
-winr window resize
-winr window close
-```
+- richer safety policy and permissions
+- stronger screenshot and input validation coverage
+- deeper UI Automation patterns and broader desktop compatibility
 
 See [docs/roadmap.md](docs/roadmap.md) for the tracked checklist.
