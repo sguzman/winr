@@ -39,6 +39,14 @@ fn temp_config_path() -> PathBuf {
     std::env::temp_dir().join(format!("winr-test-config-{millis}.toml"))
 }
 
+fn temp_profile_path() -> PathBuf {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_millis();
+    std::env::temp_dir().join(format!("winr-test-profile-{millis}.toml"))
+}
+
 #[test]
 fn windows_list_json_is_valid() {
     let output = run_winr(&["--json", "windows", "list"]);
@@ -266,4 +274,61 @@ fn mouse_click_requires_both_coordinates_in_json_mode() {
     let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"], "Unsupported");
+}
+
+#[test]
+fn profile_run_times_out_when_target_never_appears() {
+    let profile_path = temp_profile_path();
+    fs::write(
+        &profile_path,
+        r#"
+[profile]
+id = "missing-profile"
+name = "Missing Profile"
+description = "Used for timeout testing"
+version = "1"
+
+[target]
+title_contains = "__WINR_SHOULD_NOT_EXIST__"
+exe = "RobloxPlayerBeta.exe"
+
+[action]
+kind = "mouse_click"
+button = "left"
+
+[schedule]
+mode = "interval"
+every_ms = 50
+random_delta_ms = 20
+run_until_stopped = true
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "autoclicks fired: {count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = true
+stop_on_focus_loss = true
+"#,
+    )
+    .expect("failed to write temp profile");
+
+    let output = run_winr(&[
+        "--json",
+        "profile",
+        "run",
+        profile_path.to_str().expect("temp profile path should be valid"),
+        "--wait-timeout-ms",
+        "1",
+    ]);
+
+    let _ = fs::remove_file(&profile_path);
+
+    assert!(!output.status.success(), "expected timeout failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
 }

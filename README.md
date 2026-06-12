@@ -132,6 +132,13 @@ winr mouse click --button left --x 100 --y 200
 winr mouse click-window --title Notepad --x 40 --y 20
 ```
 
+Profiles:
+
+```powershell
+winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml
+winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --max-clicks 100
+```
+
 ## Input backends
 
 `winr` now supports three distinct input modes on `input text`, `input keys`, and `input sequence`:
@@ -188,6 +195,8 @@ winr
   mouse
     click
     click-window
+  profile
+    run
   uia
     tree
     find
@@ -293,6 +302,7 @@ Current behavior:
 - `window close` requires `--force` when `require_confirm_for_close = true`
 - risky actions against higher-integrity targets return `IntegrityLevelDenied`
 - minimized targets now return `UnsupportedForMinimizedWindow` for unsafe direct-input flows
+- `profile run` waits for a matching target window before starting and currently supports interval-based foreground mouse-click profiles
 
 See [docs/safety.md](docs/safety.md) for the full workflow.
 

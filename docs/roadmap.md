@@ -60,3 +60,4 @@
 - [x] Document UI Automation and MCP workflows
 - [x] Add screenshot and input validation coverage
 - [x] Document future safety policy and permission workflows in more depth
+- [x] Add a first-pass TOML profile runner for repeated mouse-click automation

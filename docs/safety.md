@@ -43,7 +43,7 @@ log_tool_calls = true
 
 - `allow_screenshots` gates desktop and window screenshots
 - `allow_input` gates `input text`, `input keys`, `input sequence`, `uia invoke`, and `uia set-text`
-- `allow_mouse` gates `mouse click` and `mouse click-window`
+- `allow_mouse` gates `mouse click`, `mouse click-window`, and mouse-click profile runs
 - `allow_window_close` gates `window close`
 - `require_confirm_for_close` requires `winr window close --force`
 - `allowlist.processes` limits risky target actions to explicit executables when non-empty
@@ -62,6 +62,7 @@ This applies to:
 - `input keys`
 - `input sequence`
 - `mouse click-window`
+- `profile run` when the profile action is mouse click
 - `uia invoke`
 - `uia set-text`
 - `window close`

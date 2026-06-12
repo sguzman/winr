@@ -130,6 +130,71 @@ impl InputMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileConfig {
+    pub profile: ProfileMetadata,
+    pub target: WindowSelector,
+    pub action: ProfileAction,
+    pub schedule: ProfileSchedule,
+    pub logging: ProfileLogging,
+    pub safety: ProfileSafety,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileMetadata {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProfileAction {
+    MouseClick { button: ProfileMouseButton },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileMouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileSchedule {
+    pub mode: String,
+    pub every_ms: u64,
+    #[serde(default)]
+    pub random_delta_ms: u64,
+    #[serde(default)]
+    pub run_until_stopped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileLogging {
+    pub level: String,
+    pub mode: String,
+    pub update_every_trigger: bool,
+    pub template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileSafety {
+    pub require_visible_window: bool,
+    pub require_foreground_window: bool,
+    pub stop_on_focus_loss: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileRunResult {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub clicks_fired: u64,
+    pub target_window: WindowInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SuccessResponse<T> {
     pub ok: bool,
     pub data: T,

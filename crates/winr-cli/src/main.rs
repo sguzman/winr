@@ -1,22 +1,25 @@
 use std::{
     io::{self, Write},
     path::PathBuf,
+    time::Duration,
 };
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{EnvFilter, fmt};
 use winr_core::{
-    ListWindowsOptions, MouseButton, close_window, focus_window, foreground_window, input_keys,
-    input_sequence, input_text, list_windows, maximize_window, minimize_window, mouse_click,
-    mouse_click_window, move_window, resize_window, restore_window, screenshot_desktop,
-    screenshot_window, uia_find, uia_invoke, uia_set_text, uia_tree, window_info,
+    ListWindowsOptions, MouseButton, ProfileRunEvent, ProfileRunOptions, close_window,
+    focus_window, foreground_window, input_keys, input_sequence, input_text, list_windows,
+    load_profile, maximize_window, minimize_window, mouse_click, mouse_click_window, move_window,
+    resize_window, restore_window, run_profile, screenshot_desktop, screenshot_window, uia_find,
+    uia_invoke, uia_set_text, uia_tree, window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, InputMode, ScreenshotBackend, ScreenshotResult, SuccessResponse,
-    UiaActionRequest, UiaActionResult, UiaElementInfo, UiaFindRequest, UiaFindResponse,
-    UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest, UiaTreeResponse,
-    WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
+    ErrorResponse, InputActionResult, InputMode, ProfileRunResult, ScreenshotBackend,
+    ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo,
+    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode,
+    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
+    format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -81,6 +84,10 @@ enum RootCommand {
         #[command(subcommand)]
         command: McpCommand,
     },
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
     Window {
         #[command(subcommand)]
         command: WindowCommand,
@@ -135,6 +142,11 @@ enum UiaCommand {
 #[derive(Debug, Subcommand)]
 enum McpCommand {
     Serve,
+}
+
+#[derive(Debug, Subcommand)]
+enum ProfileCommand {
+    Run(ProfileRunArgs),
 }
 
 #[derive(Debug, Args)]
@@ -213,6 +225,17 @@ struct WindowScreenshotArgs {
     out: PathBuf,
     #[arg(long, value_enum, default_value = "auto")]
     backend: ScreenshotBackendArg,
+}
+
+#[derive(Debug, Args)]
+struct ProfileRunArgs {
+    path: PathBuf,
+    #[arg(long, help = "Stop waiting after this many milliseconds if the target never appears")]
+    wait_timeout_ms: Option<u64>,
+    #[arg(long, default_value_t = 250, help = "Polling interval while waiting for the target window")]
+    poll_interval_ms: u64,
+    #[arg(long, help = "Stop automatically after this many clicks")]
+    max_clicks: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -541,6 +564,18 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                 })
             }
         },
+        RootCommand::Profile { command } => match command {
+            ProfileCommand::Run(args) => {
+                let profile = load_profile(&args.path)?;
+                let options = ProfileRunOptions {
+                    wait_timeout: args.wait_timeout_ms.map(Duration::from_millis),
+                    poll_interval: Duration::from_millis(args.poll_interval_ms),
+                    max_triggers: args.max_clicks,
+                };
+                let result = run_profile_with_console(&profile, options, cli.json)?;
+                emit(cli.json, &result)
+            }
+        },
         RootCommand::Window { command } => match command {
             WindowCommand::Info(args) => {
                 let selector = require_selector(args.into_selector())?;
@@ -584,6 +619,68 @@ fn run(cli: Cli) -> Result<(), WinrError> {
             }
         },
     }
+}
+
+fn run_profile_with_console(
+    profile: &winr_types::ProfileConfig,
+    options: ProfileRunOptions,
+    json: bool,
+) -> Result<ProfileRunResult, WinrError> {
+    let mut stderr = io::stderr().lock();
+    let mut last_count = 0_u64;
+    let mut rendered_progress = false;
+    let mut announced_wait = false;
+    let mut acquired_target = false;
+
+    let result = run_profile(profile, options, |event| match event {
+        ProfileRunEvent::WaitingForTarget { selector } => {
+            if json || announced_wait {
+                return;
+            }
+            let _ = writeln!(
+                stderr,
+                "waiting for target window: title={:?} exe={:?} class={:?}",
+                selector.title_contains, selector.exe, selector.class_name
+            );
+            announced_wait = true;
+        }
+        ProfileRunEvent::TargetAcquired { window } => {
+            if json || acquired_target {
+                return;
+            }
+            let _ = writeln!(
+                stderr,
+                "target acquired: {} {}",
+                window.hwnd, window.title
+            );
+            acquired_target = true;
+        }
+        ProfileRunEvent::TriggerFired { count } => {
+            last_count = count;
+            if json {
+                return;
+            }
+            let _ = write!(stderr, "\rautoclicks fired: {count}");
+            let _ = stderr.flush();
+            rendered_progress = true;
+        }
+        ProfileRunEvent::Stopped { count, reason } => {
+            last_count = count;
+            if json {
+                return;
+            }
+            if rendered_progress {
+                let _ = writeln!(stderr, "\rautoclicks fired: {count}");
+            }
+            let _ = writeln!(stderr, "profile stopped: {reason}");
+        }
+    });
+
+    if !json && rendered_progress && result.is_err() {
+        let _ = writeln!(stderr, "\rautoclicks fired: {last_count}");
+    }
+
+    result
 }
 
 fn emit_error(json: bool, error: &WinrError) {
@@ -721,6 +818,15 @@ impl HumanOutput for InputActionResult {
             window.write_human(writer)?;
         }
         Ok(())
+    }
+}
+
+impl HumanOutput for ProfileRunResult {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "profile_id: {}", self.profile_id).map_err(io_error)?;
+        writeln!(writer, "profile_name: {}", self.profile_name).map_err(io_error)?;
+        writeln!(writer, "clicks_fired: {}", self.clicks_fired).map_err(io_error)?;
+        self.target_window.write_human(writer)
     }
 }
 
