@@ -284,8 +284,9 @@ pub fn mouse_click(
         });
     }
 
-    let inputs = button.mouse_inputs();
-    send_inputs(&inputs, "mouse click")?;
+    send_inputs(&[button.mouse_down_input()], "mouse click-down")?;
+    thread::sleep(Duration::from_millis(20));
+    send_inputs(&[button.mouse_up_input()], "mouse click-up")?;
 
     Ok(InputActionResult {
         action: "mouse_click".to_string(),
@@ -338,7 +339,14 @@ pub fn mouse_click_window(
     unsafe { SetCursorPos(point.x, point.y) }.map_err(|error| WinrError::Unsupported {
         message: format!("SetCursorPos failed: {error}"),
     })?;
-    let send_result = send_inputs(&button.mouse_inputs(), "mouse click-window");
+    thread::sleep(Duration::from_millis(20));
+    let down_result = send_inputs(&[button.mouse_down_input()], "mouse click-window-down");
+    if down_result.is_ok() {
+        thread::sleep(Duration::from_millis(20));
+    }
+    let send_result =
+        down_result.and_then(|_| send_inputs(&[button.mouse_up_input()], "mouse click-window-up"));
+    thread::sleep(Duration::from_millis(20));
     let _ = unsafe { SetCursorPos(original.x, original.y) };
     send_result?;
 
@@ -917,14 +925,22 @@ impl MouseButton {
         }
     }
 
-    fn mouse_inputs(self) -> Vec<INPUT> {
-        let (down, up) = match self {
-            Self::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
-            Self::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
-            Self::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+    fn mouse_down_input(self) -> INPUT {
+        let down = match self {
+            Self::Left => MOUSEEVENTF_LEFTDOWN,
+            Self::Right => MOUSEEVENTF_RIGHTDOWN,
+            Self::Middle => MOUSEEVENTF_MIDDLEDOWN,
         };
+        mouse_input(down)
+    }
 
-        vec![mouse_input(down), mouse_input(up)]
+    fn mouse_up_input(self) -> INPUT {
+        let up = match self {
+            Self::Left => MOUSEEVENTF_LEFTUP,
+            Self::Right => MOUSEEVENTF_RIGHTUP,
+            Self::Middle => MOUSEEVENTF_MIDDLEUP,
+        };
+        mouse_input(up)
     }
 }
 
