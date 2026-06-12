@@ -1,0 +1,36 @@
+# winr profile: Roblox Grass Mower Simulator autoclicker
+# Intended use:
+# - keep firing left-clicks during the exercise segment
+# - base interval of 50ms with up to 20ms randomized delta
+# - progress logging should stay on one updating console line instead of one line per click
+
+[profile]
+id = "roblox-grass-mower-simulator-auto-clicker"
+name = "Roblox Grass Mower Simulator Auto Clicker"
+description = "Rapid left-click profile for the exercise loop in Grass Mower Simulator on Roblox."
+version = "1"
+
+[target]
+title_contains = "Roblox"
+exe = "RobloxPlayerBeta.exe"
+
+[action]
+kind = "mouse_click"
+button = "left"
+
+[schedule]
+mode = "interval"
+every_ms = 50
+random_delta_ms = 20
+run_until_stopped = true
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "autoclicks fired: {count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = false
+stop_on_focus_loss = false
