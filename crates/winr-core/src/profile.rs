@@ -5,18 +5,19 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use image::RgbaImage;
 use tracing::{debug, info, instrument, trace, warn};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winr_types::{
-    ProfileAction, ProfileClickPoint, ProfileConfig, ProfileMouseButton, ProfileRunResult,
-    WindowInfo, WindowSelector, WinrError, WinrResult,
+    ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector, ProfileMouseButton,
+    ProfileRunResult, WindowInfo, WindowSelector, WinrError, WinrResult,
 };
 
 use crate::{
-    ListWindowsOptions, MouseButton, focus_window, foreground_window, list_windows,
-    mouse_click_window, parse_selector_hwnd,
+    ListWindowsOptions, MouseButton, capture_window_image, focus_window, foreground_window,
+    list_windows, mouse_click_window, parse_selector_hwnd,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +45,7 @@ impl Default for ProfileRunOptions {
 pub enum ProfileRunEvent {
     WaitingForTarget { selector: WindowSelector },
     TargetAcquired { window: WindowInfo },
+    DetectorMatched { x: i32, y: i32, pixel_count: u32 },
     TriggerFired { count: u64 },
     Stopped { count: u64, reason: String },
 }
@@ -136,6 +138,7 @@ where
         hwnd: Some(target.hwnd.clone()),
         ..WindowSelector::default()
     };
+    let mut detector_armed = true;
 
     loop {
         if should_stop() {
@@ -164,11 +167,39 @@ where
             }
         }
 
-        mouse_click_window(&target_selector, click_x, click_y, button.into(), false)?;
-        fired += 1;
-        on_event(ProfileRunEvent::TriggerFired { count: fired });
+        let mut clicked = false;
+        if let Some(detector) = &profile.detector {
+            let capture = capture_window_image(&target)?;
+            if let Some(match_result) = detect_match(&capture, detector)? {
+                on_event(ProfileRunEvent::DetectorMatched {
+                    x: match_result.x,
+                    y: match_result.y,
+                    pixel_count: match_result.pixel_count,
+                });
+                if detector_armed {
+                    mouse_click_window(
+                        &target_selector,
+                        match_result.x,
+                        match_result.y,
+                        button.into(),
+                        false,
+                    )?;
+                    fired += 1;
+                    on_event(ProfileRunEvent::TriggerFired { count: fired });
+                    detector_armed = false;
+                    clicked = true;
+                }
+            } else {
+                detector_armed = true;
+            }
+        } else {
+            mouse_click_window(&target_selector, click_x, click_y, button.into(), false)?;
+            fired += 1;
+            on_event(ProfileRunEvent::TriggerFired { count: fired });
+            clicked = true;
+        }
 
-        if let Some(limit) = options.max_triggers {
+        if clicked && let Some(limit) = options.max_triggers {
             if fired >= limit {
                 info!(fired, "profile reached max_triggers and is stopping");
                 on_event(ProfileRunEvent::Stopped {
@@ -225,6 +256,24 @@ fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
         return Err(WinrError::Unsupported {
             message: "unsupported profile action".to_string(),
         });
+    }
+
+    if let Some(ProfileDetector::ColorMatch {
+        tolerance,
+        min_pixels,
+        ..
+    }) = &profile.detector
+    {
+        if *tolerance == 0 {
+            return Err(WinrError::Unsupported {
+                message: "color detector tolerance must be greater than zero".to_string(),
+            });
+        }
+        if *min_pixels == 0 {
+            return Err(WinrError::Unsupported {
+                message: "color detector min_pixels must be greater than zero".to_string(),
+            });
+        }
     }
 
     Ok(())
@@ -391,6 +440,71 @@ fn random_delta(max_delta_ms: u64) -> u64 {
     nanos % (max_delta_ms + 1)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DetectorMatch {
+    x: i32,
+    y: i32,
+    pixel_count: u32,
+}
+
+fn detect_match(image: &RgbaImage, detector: &ProfileDetector) -> WinrResult<Option<DetectorMatch>> {
+    match detector {
+        ProfileDetector::ColorMatch {
+            red,
+            green,
+            blue,
+            tolerance,
+            min_pixels,
+        } => Ok(detect_color_match(
+            image,
+            (*red, *green, *blue),
+            *tolerance,
+            *min_pixels,
+        )),
+    }
+}
+
+fn detect_color_match(
+    image: &RgbaImage,
+    target: (u8, u8, u8),
+    tolerance: u8,
+    min_pixels: u32,
+) -> Option<DetectorMatch> {
+    let mut pixel_count = 0_u32;
+    let mut sum_x = 0_u64;
+    let mut sum_y = 0_u64;
+
+    for (x, y, pixel) in image.enumerate_pixels() {
+        if color_within_tolerance(pixel.0[0], pixel.0[1], pixel.0[2], target, tolerance) {
+            pixel_count += 1;
+            sum_x += x as u64;
+            sum_y += y as u64;
+        }
+    }
+
+    if pixel_count < min_pixels {
+        return None;
+    }
+
+    Some(DetectorMatch {
+        x: (sum_x / pixel_count as u64) as i32,
+        y: (sum_y / pixel_count as u64) as i32,
+        pixel_count,
+    })
+}
+
+fn color_within_tolerance(
+    red: u8,
+    green: u8,
+    blue: u8,
+    target: (u8, u8, u8),
+    tolerance: u8,
+) -> bool {
+    red.abs_diff(target.0) <= tolerance
+        && green.abs_diff(target.1) <= tolerance
+        && blue.abs_diff(target.2) <= tolerance
+}
+
 impl From<ProfileMouseButton> for MouseButton {
     fn from(value: ProfileMouseButton) -> Self {
         match value {
@@ -423,6 +537,14 @@ kind = "mouse_click"
 button = "left"
 click_point = "center"
 
+[detector]
+kind = "color_match"
+red = 179
+green = 48
+blue = 218
+tolerance = 40
+min_pixels = 200
+
 [schedule]
 mode = "interval"
 every_ms = 50
@@ -450,6 +572,19 @@ stop_on_focus_loss = true
         assert_eq!(profile.profile.id, "demo");
         assert_eq!(profile.schedule.every_ms, 50);
         assert!(profile.safety.require_foreground_window);
+        match profile.detector.as_ref().expect("detector should exist") {
+            ProfileDetector::ColorMatch {
+                red,
+                green,
+                blue,
+                tolerance,
+                min_pixels,
+            } => {
+                assert_eq!((*red, *green, *blue), (179, 48, 218));
+                assert_eq!(*tolerance, 40);
+                assert_eq!(*min_pixels, 200);
+            }
+        }
         match profile.action {
             ProfileAction::MouseClick {
                 click_point, x, y, ..
@@ -622,5 +757,30 @@ stop_on_focus_loss = true
 
         let error = resolve_click_point(&target, None, Some(50), None).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn detect_color_match_finds_cluster_centroid() {
+        let mut image = RgbaImage::new(10, 10);
+        for y in 4..7 {
+            for x in 2..5 {
+                image.put_pixel(x, y, image::Rgba([180, 50, 220, 255]));
+            }
+        }
+
+        let found = detect_color_match(&image, (179, 48, 218), 5, 4)
+            .expect("cluster should be detected");
+        assert_eq!(found.x, 3);
+        assert_eq!(found.y, 5);
+        assert_eq!(found.pixel_count, 9);
+    }
+
+    #[test]
+    fn detect_color_match_ignores_small_matches() {
+        let mut image = RgbaImage::new(10, 10);
+        image.put_pixel(1, 1, image::Rgba([180, 50, 220, 255]));
+
+        let found = detect_color_match(&image, (179, 48, 218), 5, 2);
+        assert!(found.is_none());
     }
 }

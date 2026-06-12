@@ -1,0 +1,49 @@
+# winr profile: Roblox purple button detector
+# Intended use:
+# - watch the Roblox window for a purple circular button like the provided image
+# - click once when the color cluster appears
+# - re-arm after the button disappears, so repeated appearances can be clicked
+# Notes:
+# - this is color-based, not template-perfect, so the RGB/tolerance may need tuning per game
+# - screenshots must be allowed in config because detection captures the target window
+
+[profile]
+id = "roblox-purple-button-color-detector"
+name = "Roblox Purple Button Color Detector"
+description = "Detects a purple button-like color cluster in Roblox and clicks it once per appearance."
+version = "1"
+
+[target]
+title_contains = "Roblox"
+exe = "RobloxPlayerBeta.exe"
+class_name = "WINDOWSCLIENT"
+
+[action]
+kind = "mouse_click"
+button = "left"
+click_point = "center"
+
+[detector]
+kind = "color_match"
+red = 179
+green = 48
+blue = 218
+tolerance = 40
+min_pixels = 200
+
+[schedule]
+mode = "interval"
+every_ms = 50
+random_delta_ms = 10
+run_until_stopped = true
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "detected clicks fired: {count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = true
+stop_on_focus_loss = true

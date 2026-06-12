@@ -423,6 +423,28 @@ pub fn screenshot_window(
     save_image(out, image, used_backend)
 }
 
+pub(crate) fn capture_window_image(window: &WindowInfo) -> WinrResult<RgbaImage> {
+    enforce_screenshot_permission(Some(window))?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+    match capture_print_window(hwnd, window) {
+        Ok(image) => Ok(image),
+        Err(error) => {
+            warn!(
+                %error,
+                hwnd = %window.hwnd,
+                "PrintWindow capture failed for profile detection, falling back to gdi"
+            );
+            capture_gdi(
+                Some(hwnd),
+                0,
+                0,
+                window.rect.right - window.rect.left,
+                window.rect.bottom - window.rect.top,
+            )
+        }
+    }
+}
+
 #[instrument]
 pub fn enumerate_windows() -> WinrResult<Vec<WindowInfo>> {
     let mut handles = Vec::new();

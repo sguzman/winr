@@ -134,6 +134,8 @@ pub struct ProfileConfig {
     pub profile: ProfileMetadata,
     pub target: WindowSelector,
     pub action: ProfileAction,
+    #[serde(default)]
+    pub detector: Option<ProfileDetector>,
     pub schedule: ProfileSchedule,
     pub logging: ProfileLogging,
     pub safety: ProfileSafety,
@@ -174,6 +176,18 @@ pub enum ProfileClickPoint {
     BottomCenter,
     BottomRight,
     CurrentCursor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProfileDetector {
+    ColorMatch {
+        red: u8,
+        green: u8,
+        blue: u8,
+        tolerance: u8,
+        min_pixels: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

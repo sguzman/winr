@@ -673,6 +673,7 @@ fn run_profile_with_console(
                 let _ = writeln!(stderr, "target acquired: {} {}", window.hwnd, window.title);
                 acquired_target = true;
             }
+            ProfileRunEvent::DetectorMatched { .. } => {}
             ProfileRunEvent::TriggerFired { count } => {
                 last_count = count;
                 if json {

@@ -139,6 +139,7 @@ winr profile run profile/general-roblox-auto-clicker.toml
 winr profile run profile/general-roblox-auto-clicker.toml --focus-target
 winr profile run profile/general-roblox-auto-clicker.toml --focus-target --arm-delay-ms 1500
 winr profile run profile/general-roblox-auto-clicker.toml --max-clicks 100
+winr profile run profile/roblox-purple-button-color-detector.toml --focus-target
 ```
 
 Press `Ctrl+C` to stop a running profile cleanly.
@@ -148,6 +149,8 @@ For foreground-only clicker profiles, `--focus-target` is the easiest way to sta
 Mouse-click profiles now click a stable client-area point inside the target window instead of blindly clicking wherever the cursor happens to be. If the profile does not specify `x` and `y`, `winr` will try to capture the current cursor position inside the target window and otherwise fall back to the window center.
 
 Profile click actions can also use named presets such as `click_point = "center"` or `click_point = "current_cursor"`. Named presets cannot be combined with explicit `x` and `y` coordinates.
+
+Profiles can also include a detector section. The first detector is `color_match`, which captures the target window, looks for a color cluster, and clicks once per appearance when the cluster is present. Because that workflow captures the window image, detector-driven profiles also require screenshots to be allowed by config.
 
 ## Input backends
 
