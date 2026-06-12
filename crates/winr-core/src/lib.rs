@@ -593,7 +593,7 @@ fn query_process_image_name(handle: HANDLE) -> Option<String> {
     Some(file_name)
 }
 
-fn parse_selector_hwnd(hwnd: &str) -> HWND {
+pub(crate) fn parse_selector_hwnd(hwnd: &str) -> HWND {
     let numeric = winr_types::parse_hwnd(hwnd).unwrap_or_default();
     HWND(numeric as usize as *mut _)
 }

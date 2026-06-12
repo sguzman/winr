@@ -6,13 +6,17 @@ use std::{
 };
 
 use tracing::{debug, info, instrument, trace, warn};
+use windows::Win32::Foundation::POINT;
+use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winr_types::{
     ProfileAction, ProfileConfig, ProfileMouseButton, ProfileRunResult, WindowInfo,
     WindowSelector, WinrError, WinrResult,
 };
 
 use crate::{
-    ListWindowsOptions, MouseButton, focus_window, foreground_window, list_windows, mouse_click,
+    ListWindowsOptions, MouseButton, focus_window, foreground_window, list_windows,
+    mouse_click_window, parse_selector_hwnd,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +25,7 @@ pub struct ProfileRunOptions {
     pub poll_interval: Duration,
     pub max_triggers: Option<u64>,
     pub focus_target: bool,
+    pub arm_delay: Duration,
 }
 
 impl Default for ProfileRunOptions {
@@ -30,6 +35,7 @@ impl Default for ProfileRunOptions {
             poll_interval: Duration::from_millis(250),
             max_triggers: None,
             focus_target: false,
+            arm_delay: Duration::ZERO,
         }
     }
 }
@@ -105,11 +111,26 @@ where
         thread::sleep(options.poll_interval);
     };
 
-    let button = match profile.action {
-        ProfileAction::MouseClick { button } => button,
+    if options.arm_delay > Duration::ZERO {
+        info!(
+            arm_delay_ms = options.arm_delay.as_millis() as u64,
+            "arming profile before input loop"
+        );
+        thread::sleep(options.arm_delay);
+    }
+
+    let (button, click_x, click_y) = match &profile.action {
+        ProfileAction::MouseClick { button, x, y } => {
+            let (click_x, click_y) = resolve_click_point(&target, *x, *y)?;
+            (*button, click_x, click_y)
+        }
     };
     let every = Duration::from_millis(profile.schedule.every_ms);
     let mut fired = 0_u64;
+    let target_selector = WindowSelector {
+        hwnd: Some(target.hwnd.clone()),
+        ..WindowSelector::default()
+    };
 
     loop {
         if should_stop() {
@@ -138,7 +159,7 @@ where
             }
         }
 
-        mouse_click(button.into(), None, None)?;
+        mouse_click_window(&target_selector, click_x, click_y, button.into(), false)?;
         fired += 1;
         on_event(ProfileRunEvent::TriggerFired { count: fired });
 
@@ -269,6 +290,55 @@ fn resolve_profile_target(profile: &ProfileConfig, focus_target: bool) -> WinrRe
     Ok(Some(window))
 }
 
+fn resolve_click_point(
+    target: &WindowInfo,
+    configured_x: Option<i32>,
+    configured_y: Option<i32>,
+) -> WinrResult<(i32, i32)> {
+    match (configured_x, configured_y) {
+        (Some(x), Some(y)) => Ok((x, y)),
+        (Some(_), None) | (None, Some(_)) => Err(WinrError::Unsupported {
+            message: "profile mouse click action requires both x and y when either is provided"
+                .to_string(),
+        }),
+        (None, None) => cursor_point_in_target(target).or_else(|_| {
+            let width = (target.rect.right - target.rect.left).max(1);
+            let height = (target.rect.bottom - target.rect.top).max(1);
+            let center = (width / 2, height / 2);
+            warn!(
+                hwnd = %target.hwnd,
+                x = center.0,
+                y = center.1,
+                "cursor was not inside target window; falling back to window center"
+            );
+            Ok(center)
+        }),
+    }
+}
+
+fn cursor_point_in_target(target: &WindowInfo) -> WinrResult<(i32, i32)> {
+    let hwnd = parse_selector_hwnd(&target.hwnd);
+    let mut point = POINT::default();
+    unsafe { GetCursorPos(&mut point) }.map_err(|error| WinrError::Unsupported {
+        message: format!("GetCursorPos failed while resolving profile click point: {error}"),
+    })?;
+    if !unsafe { ScreenToClient(hwnd, &mut point) }.as_bool() {
+        return Err(WinrError::Unsupported {
+            message: "ScreenToClient failed while resolving profile click point".to_string(),
+        });
+    }
+
+    let width = (target.rect.right - target.rect.left).max(1);
+    let height = (target.rect.bottom - target.rect.top).max(1);
+    if point.x < 0 || point.y < 0 || point.x >= width || point.y >= height {
+        return Err(WinrError::Unsupported {
+            message: "current cursor is not inside the target window".to_string(),
+        });
+    }
+
+    Ok((point.x, point.y))
+}
+
 fn random_delta(max_delta_ms: u64) -> u64 {
     if max_delta_ms == 0 {
         return 0;
@@ -311,6 +381,8 @@ exe = "RobloxPlayerBeta.exe"
 [action]
 kind = "mouse_click"
 button = "left"
+x = 320
+y = 320
 
 [schedule]
 mode = "interval"
@@ -339,6 +411,12 @@ stop_on_focus_loss = true
         assert_eq!(profile.profile.id, "demo");
         assert_eq!(profile.schedule.every_ms, 50);
         assert!(profile.safety.require_foreground_window);
+        match profile.action {
+            ProfileAction::MouseClick { x, y, .. } => {
+                assert_eq!(x, Some(320));
+                assert_eq!(y, Some(320));
+            }
+        }
     }
 
     #[test]
@@ -355,5 +433,28 @@ stop_on_focus_loss = true
             let delta = random_delta(20);
             assert!(delta <= 20);
         }
+    }
+
+    #[test]
+    fn resolve_click_point_requires_both_coordinates_when_configured() {
+        let target = WindowInfo {
+            hwnd: "0x0000000000000001".to_string(),
+            pid: 1,
+            title: "Roblox".to_string(),
+            class_name: "WINDOWSCLIENT".to_string(),
+            exe: Some("RobloxPlayerBeta.exe".to_string()),
+            visible: true,
+            minimized: false,
+            foreground: true,
+            rect: winr_types::Rect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        };
+
+        let error = resolve_click_point(&target, Some(50), None).unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
     }
 }

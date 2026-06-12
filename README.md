@@ -137,12 +137,15 @@ Profiles:
 ```powershell
 winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml
 winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --focus-target
+winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --focus-target --arm-delay-ms 1500
 winr profile run profile/roblox-grass-mower-simulator-auto-clicker.toml --max-clicks 100
 ```
 
 Press `Ctrl+C` to stop a running profile cleanly.
 
 For foreground-only clicker profiles, `--focus-target` is the easiest way to start from the terminal without manually alt-tabbing first. It asks Windows to bring the matched target forward before the loop begins.
+
+Mouse-click profiles now click a stable client-area point inside the target window instead of blindly clicking wherever the cursor happens to be. If the profile does not specify `x` and `y`, `winr` will try to capture the current cursor position inside the target window and otherwise fall back to the window center.
 
 ## Input backends
 
