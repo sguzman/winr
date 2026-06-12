@@ -10,8 +10,8 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winr_types::{
-    ProfileAction, ProfileConfig, ProfileMouseButton, ProfileRunResult, WindowInfo,
-    WindowSelector, WinrError, WinrResult,
+    ProfileAction, ProfileClickPoint, ProfileConfig, ProfileMouseButton, ProfileRunResult,
+    WindowInfo, WindowSelector, WinrError, WinrResult,
 };
 
 use crate::{
@@ -120,8 +120,13 @@ where
     }
 
     let (button, click_x, click_y) = match &profile.action {
-        ProfileAction::MouseClick { button, x, y } => {
-            let (click_x, click_y) = resolve_click_point(&target, *x, *y)?;
+        ProfileAction::MouseClick {
+            button,
+            click_point,
+            x,
+            y,
+        } => {
+            let (click_x, click_y) = resolve_click_point(&target, *click_point, *x, *y)?;
             (*button, click_x, click_y)
         }
     };
@@ -292,9 +297,21 @@ fn resolve_profile_target(profile: &ProfileConfig, focus_target: bool) -> WinrRe
 
 fn resolve_click_point(
     target: &WindowInfo,
+    configured_point: Option<ProfileClickPoint>,
     configured_x: Option<i32>,
     configured_y: Option<i32>,
 ) -> WinrResult<(i32, i32)> {
+    if let Some(click_point) = configured_point {
+        if configured_x.is_some() || configured_y.is_some() {
+            return Err(WinrError::Unsupported {
+                message:
+                    "profile mouse click action cannot combine click_point with x or y coordinates"
+                        .to_string(),
+            });
+        }
+        return resolve_named_click_point(target, click_point);
+    }
+
     match (configured_x, configured_y) {
         (Some(x), Some(y)) => Ok((x, y)),
         (Some(_), None) | (None, Some(_)) => Err(WinrError::Unsupported {
@@ -314,6 +331,29 @@ fn resolve_click_point(
             Ok(center)
         }),
     }
+}
+
+fn resolve_named_click_point(
+    target: &WindowInfo,
+    click_point: ProfileClickPoint,
+) -> WinrResult<(i32, i32)> {
+    let width = (target.rect.right - target.rect.left).max(1);
+    let height = (target.rect.bottom - target.rect.top).max(1);
+
+    let point = match click_point {
+        ProfileClickPoint::Center => (width / 2, height / 2),
+        ProfileClickPoint::TopLeft => (1.min(width - 1), 1.min(height - 1)),
+        ProfileClickPoint::TopCenter => (width / 2, 1.min(height - 1)),
+        ProfileClickPoint::TopRight => ((width - 2).max(0), 1.min(height - 1)),
+        ProfileClickPoint::LeftCenter => (1.min(width - 1), height / 2),
+        ProfileClickPoint::RightCenter => ((width - 2).max(0), height / 2),
+        ProfileClickPoint::BottomLeft => (1.min(width - 1), (height - 2).max(0)),
+        ProfileClickPoint::BottomCenter => (width / 2, (height - 2).max(0)),
+        ProfileClickPoint::BottomRight => ((width - 2).max(0), (height - 2).max(0)),
+        ProfileClickPoint::CurrentCursor => cursor_point_in_target(target)?,
+    };
+
+    Ok(point)
 }
 
 fn cursor_point_in_target(target: &WindowInfo) -> WinrResult<(i32, i32)> {
@@ -381,8 +421,7 @@ exe = "RobloxPlayerBeta.exe"
 [action]
 kind = "mouse_click"
 button = "left"
-x = 320
-y = 320
+click_point = "center"
 
 [schedule]
 mode = "interval"
@@ -412,9 +451,12 @@ stop_on_focus_loss = true
         assert_eq!(profile.schedule.every_ms, 50);
         assert!(profile.safety.require_foreground_window);
         match profile.action {
-            ProfileAction::MouseClick { x, y, .. } => {
-                assert_eq!(x, Some(320));
-                assert_eq!(y, Some(320));
+            ProfileAction::MouseClick {
+                click_point, x, y, ..
+            } => {
+                assert_eq!(click_point, Some(ProfileClickPoint::Center));
+                assert_eq!(x, None);
+                assert_eq!(y, None);
             }
         }
     }
@@ -454,7 +496,131 @@ stop_on_focus_loss = true
             },
         };
 
-        let error = resolve_click_point(&target, Some(50), None).unwrap_err();
+        let error = resolve_click_point(&target, None, Some(50), None).unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn resolve_click_point_rejects_mixed_named_and_explicit_coordinates() {
+        let target = WindowInfo {
+            hwnd: "0x0000000000000001".to_string(),
+            pid: 1,
+            title: "Roblox".to_string(),
+            class_name: "WINDOWSCLIENT".to_string(),
+            exe: Some("RobloxPlayerBeta.exe".to_string()),
+            visible: true,
+            minimized: false,
+            foreground: true,
+            rect: winr_types::Rect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        };
+
+        let error = resolve_click_point(
+            &target,
+            Some(ProfileClickPoint::Center),
+            Some(50),
+            Some(60),
+        )
+        .unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn resolve_named_click_point_center_uses_window_center() {
+        let target = WindowInfo {
+            hwnd: "0x0000000000000001".to_string(),
+            pid: 1,
+            title: "Roblox".to_string(),
+            class_name: "WINDOWSCLIENT".to_string(),
+            exe: Some("RobloxPlayerBeta.exe".to_string()),
+            visible: true,
+            minimized: false,
+            foreground: true,
+            rect: winr_types::Rect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        };
+
+        let point = resolve_named_click_point(&target, ProfileClickPoint::Center)
+            .expect("center point should resolve");
+        assert_eq!(point, (400, 300));
+    }
+
+    #[test]
+    fn resolve_click_point_explicit_coordinates_still_work() {
+        let target = WindowInfo {
+            hwnd: "0x0000000000000001".to_string(),
+            pid: 1,
+            title: "Roblox".to_string(),
+            class_name: "WINDOWSCLIENT".to_string(),
+            exe: Some("RobloxPlayerBeta.exe".to_string()),
+            visible: true,
+            minimized: false,
+            foreground: true,
+            rect: winr_types::Rect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        };
+
+        let point =
+            resolve_click_point(&target, None, Some(320), Some(320)).expect("point should work");
+        assert_eq!(point, (320, 320));
+    }
+
+    #[test]
+    fn resolve_named_click_point_bottom_right_stays_in_bounds() {
+        let target = WindowInfo {
+            hwnd: "0x0000000000000001".to_string(),
+            pid: 1,
+            title: "Roblox".to_string(),
+            class_name: "WINDOWSCLIENT".to_string(),
+            exe: Some("RobloxPlayerBeta.exe".to_string()),
+            visible: true,
+            minimized: false,
+            foreground: true,
+            rect: winr_types::Rect {
+                left: 0,
+                top: 0,
+                right: 5,
+                bottom: 5,
+            },
+        };
+
+        let point = resolve_named_click_point(&target, ProfileClickPoint::BottomRight)
+            .expect("bottom-right point should resolve");
+        assert_eq!(point, (3, 3));
+    }
+
+    #[test]
+    fn resolve_click_point_rejects_partial_explicit_coordinates() {
+        let target = WindowInfo {
+            hwnd: "0x0000000000000001".to_string(),
+            pid: 1,
+            title: "Roblox".to_string(),
+            class_name: "WINDOWSCLIENT".to_string(),
+            exe: Some("RobloxPlayerBeta.exe".to_string()),
+            visible: true,
+            minimized: false,
+            foreground: true,
+            rect: winr_types::Rect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+        };
+
+        let error = resolve_click_point(&target, None, Some(50), None).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
     }
 }

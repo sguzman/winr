@@ -153,10 +153,27 @@ pub enum ProfileAction {
     MouseClick {
         button: ProfileMouseButton,
         #[serde(default)]
+        click_point: Option<ProfileClickPoint>,
+        #[serde(default)]
         x: Option<i32>,
         #[serde(default)]
         y: Option<i32>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileClickPoint {
+    Center,
+    TopLeft,
+    TopCenter,
+    TopRight,
+    LeftCenter,
+    RightCenter,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+    CurrentCursor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -18,8 +18,7 @@ class_name = "WINDOWSCLIENT"
 [action]
 kind = "mouse_click"
 button = "left"
-x = 320
-y = 320
+click_point = "center"
 
 [schedule]
 mode = "interval"
