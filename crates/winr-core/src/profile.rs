@@ -491,27 +491,80 @@ fn detect_color_match(
     tolerance: u8,
     min_pixels: u32,
 ) -> Option<DetectorMatch> {
-    let mut pixel_count = 0_u32;
-    let mut sum_x = 0_u64;
-    let mut sum_y = 0_u64;
+    let width = image.width() as usize;
+    let height = image.height() as usize;
+    let mut matches = vec![false; width * height];
 
-    for (x, y, pixel) in image.enumerate_pixels() {
-        if color_within_tolerance(pixel.0[0], pixel.0[1], pixel.0[2], target, tolerance) {
-            pixel_count += 1;
-            sum_x += x as u64;
-            sum_y += y as u64;
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = image.get_pixel(x as u32, y as u32);
+            if color_within_tolerance(pixel.0[0], pixel.0[1], pixel.0[2], target, tolerance) {
+                matches[y * width + x] = true;
+            }
         }
     }
 
-    if pixel_count < min_pixels {
-        return None;
+    let mut visited = vec![false; width * height];
+    let mut best: Option<DetectorMatch> = None;
+
+    for start_y in 0..height {
+        for start_x in 0..width {
+            let start_index = start_y * width + start_x;
+            if !matches[start_index] || visited[start_index] {
+                continue;
+            }
+
+            let mut stack = vec![(start_x, start_y)];
+            visited[start_index] = true;
+            let mut pixel_count = 0_u32;
+            let mut sum_x = 0_u64;
+            let mut sum_y = 0_u64;
+
+            while let Some((x, y)) = stack.pop() {
+                pixel_count += 1;
+                sum_x += x as u64;
+                sum_y += y as u64;
+
+                for (nx, ny) in neighbors(x, y, width, height) {
+                    let index = ny * width + nx;
+                    if matches[index] && !visited[index] {
+                        visited[index] = true;
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+
+            if pixel_count < min_pixels {
+                continue;
+            }
+
+            let candidate = DetectorMatch {
+                x: (sum_x / pixel_count as u64) as i32,
+                y: (sum_y / pixel_count as u64) as i32,
+                pixel_count,
+            };
+
+            if best.is_none_or(|current| candidate.pixel_count > current.pixel_count) {
+                best = Some(candidate);
+            }
+        }
     }
 
-    Some(DetectorMatch {
-        x: (sum_x / pixel_count as u64) as i32,
-        y: (sum_y / pixel_count as u64) as i32,
-        pixel_count,
-    })
+    best
+}
+
+fn neighbors(
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> [(usize, usize); 4] {
+    [
+        (x.saturating_sub(1), y),
+        ((x + 1).min(width.saturating_sub(1)), y),
+        (x, y.saturating_sub(1)),
+        (x, (y + 1).min(height.saturating_sub(1))),
+    ]
 }
 
 fn color_within_tolerance(
@@ -524,6 +577,21 @@ fn color_within_tolerance(
     red.abs_diff(target.0) <= tolerance
         && green.abs_diff(target.1) <= tolerance
         && blue.abs_diff(target.2) <= tolerance
+}
+
+#[cfg(test)]
+fn detect_all_matching_pixels(
+    image: &RgbaImage,
+    target: (u8, u8, u8),
+    tolerance: u8,
+) -> u32 {
+    let mut pixel_count = 0_u32;
+    for (_, _, pixel) in image.enumerate_pixels() {
+        if color_within_tolerance(pixel.0[0], pixel.0[1], pixel.0[2], target, tolerance) {
+            pixel_count += 1;
+        }
+    }
+    pixel_count
 }
 
 impl From<ProfileMouseButton> for MouseButton {
@@ -803,6 +871,30 @@ stop_on_focus_loss = true
 
         let found = detect_color_match(&image, (179, 48, 218), 5, 2);
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn detect_color_match_prefers_largest_connected_cluster() {
+        let mut image = RgbaImage::new(120, 120);
+        for y in 10..20 {
+            for x in 10..20 {
+                image.put_pixel(x, y, image::Rgba([180, 50, 220, 255]));
+            }
+        }
+        for y in 80..110 {
+            for x in 70..105 {
+                image.put_pixel(x, y, image::Rgba([180, 50, 220, 255]));
+            }
+        }
+
+        let total = detect_all_matching_pixels(&image, (179, 48, 218), 5);
+        assert_eq!(total, 1150);
+
+        let found = detect_color_match(&image, (179, 48, 218), 5, 20)
+            .expect("largest cluster should be selected");
+        assert_eq!(found.pixel_count, 1050);
+        assert!((found.x - 87).abs() <= 1);
+        assert!((found.y - 94).abs() <= 1);
     }
 
     #[test]
