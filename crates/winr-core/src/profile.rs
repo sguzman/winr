@@ -16,7 +16,7 @@ use winr_types::{
 };
 
 use crate::{
-    ListWindowsOptions, MouseButton, capture_window_image, focus_window, foreground_window,
+    ListWindowsOptions, MouseButton, capture_window_live_image, focus_window, foreground_window,
     list_windows, mouse_click_window, parse_selector_hwnd,
 };
 
@@ -169,18 +169,20 @@ where
 
         let mut clicked = false;
         if let Some(detector) = &profile.detector {
-            let capture = capture_window_image(&target)?;
+            let capture = capture_window_live_image(&target)?;
             if let Some(match_result) = detect_match(&capture, detector)? {
+                let (client_x, client_y) =
+                    detector_match_to_client_coords(&target, match_result.x, match_result.y)?;
                 on_event(ProfileRunEvent::DetectorMatched {
-                    x: match_result.x,
-                    y: match_result.y,
+                    x: client_x,
+                    y: client_y,
                     pixel_count: match_result.pixel_count,
                 });
                 if detector_armed {
                     mouse_click_window(
                         &target_selector,
-                        match_result.x,
-                        match_result.y,
+                        client_x,
+                        client_y,
                         button.into(),
                         false,
                     )?;
@@ -425,6 +427,25 @@ fn cursor_point_in_target(target: &WindowInfo) -> WinrResult<(i32, i32)> {
         });
     }
 
+    Ok((point.x, point.y))
+}
+
+fn detector_match_to_client_coords(
+    target: &WindowInfo,
+    local_capture_x: i32,
+    local_capture_y: i32,
+) -> WinrResult<(i32, i32)> {
+    let hwnd = parse_selector_hwnd(&target.hwnd);
+    let mut point = POINT {
+        x: target.rect.left + local_capture_x,
+        y: target.rect.top + local_capture_y,
+    };
+    if !unsafe { ScreenToClient(hwnd, &mut point) }.as_bool() {
+        return Err(WinrError::Unsupported {
+            message: "ScreenToClient failed while translating detector match coordinates"
+                .to_string(),
+        });
+    }
     Ok((point.x, point.y))
 }
 
@@ -782,5 +803,31 @@ stop_on_focus_loss = true
 
         let found = detect_color_match(&image, (179, 48, 218), 5, 2);
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn detector_match_event_uses_capture_local_coordinates() {
+        let mut image = RgbaImage::new(20, 20);
+        for y in 8..11 {
+            for x in 5..8 {
+                image.put_pixel(x, y, image::Rgba([180, 50, 220, 255]));
+            }
+        }
+
+        let found = detect_match(
+            &image,
+            &ProfileDetector::ColorMatch {
+                red: 179,
+                green: 48,
+                blue: 218,
+                tolerance: 5,
+                min_pixels: 4,
+            },
+        )
+        .expect("detector call should succeed")
+        .expect("match should exist");
+
+        assert_eq!(found.x, 6);
+        assert_eq!(found.y, 9);
     }
 }
