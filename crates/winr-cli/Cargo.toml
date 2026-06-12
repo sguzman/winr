@@ -1,0 +1,22 @@
+[package]
+name = "winr-cli"
+version.workspace = true
+edition.workspace = true
+default-run = "winr"
+
+[[bin]]
+name = "winr"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+winr-core = { path = "../winr-core" }
+winr-types = { path = "../winr-types" }
+
+[dev-dependencies]
+serde_json.workspace = true
