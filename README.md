@@ -9,6 +9,7 @@
 - Inspect one resolved window in human-readable or JSON form
 - Report the current foreground window
 - Attempt to focus a selected window
+- Restore, minimize, maximize, move, resize, and close selected windows
 - Emit extensive structured logs with `tracing`
 
 ## Project layout
@@ -58,6 +59,8 @@ cargo run -p winr-cli -- windows list --json
 cargo run -p winr-cli -- windows foreground --json
 cargo run -p winr-cli -- window info --title Notepad --json
 cargo run -p winr-cli -- window focus --hwnd 0x0012034A
+cargo run -p winr-cli -- window restore --title Notepad
+cargo run -p winr-cli -- window move --title Notepad --x 100 --y 100 --width 1280 --height 720
 ```
 
 ## Command reference
@@ -91,6 +94,18 @@ Focus a window:
 ```powershell
 winr window focus --title Notepad
 winr window focus --exe Code.exe --json
+```
+
+Window actions:
+
+```powershell
+winr window restore --title Notepad
+winr window minimize --exe Code.exe
+winr window maximize --class CabinetWClass
+winr window move --title Notepad --x 100 --y 100
+winr window move --title Notepad --x 100 --y 100 --width 1280 --height 720
+winr window resize --title Notepad --width 1280 --height 720
+winr window close --hwnd 0x0012034A --json
 ```
 
 ## JSON output
@@ -150,5 +165,20 @@ The current milestone delivers the CLI-first foundation. Planned follow-up work 
 - Windows UI Automation support
 - permissions and safety policy
 - MCP server integration after the core behavior is proven locally
+
+The current command tree is:
+
+```text
+winr windows list
+winr windows foreground
+winr window info
+winr window focus
+winr window restore
+winr window minimize
+winr window maximize
+winr window move
+winr window resize
+winr window close
+```
 
 See [docs/roadmap.md](docs/roadmap.md) for the tracked checklist.

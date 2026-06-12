@@ -3,9 +3,13 @@ use std::io::{self, Write};
 use clap::{Args, Parser, Subcommand};
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{EnvFilter, fmt};
-use winr_core::{ListWindowsOptions, focus_window, foreground_window, list_windows, window_info};
+use winr_core::{
+    ListWindowsOptions, close_window, focus_window, foreground_window, list_windows,
+    maximize_window, minimize_window, move_window, resize_window, restore_window, window_info,
+};
 use winr_types::{
-    ErrorResponse, SuccessResponse, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
+    ErrorResponse, SuccessResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
+    format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -66,6 +70,12 @@ enum WindowsCommand {
 enum WindowCommand {
     Info(SelectorArgs),
     Focus(SelectorArgs),
+    Restore(SelectorArgs),
+    Minimize(SelectorArgs),
+    Maximize(SelectorArgs),
+    Move(MoveArgs),
+    Resize(ResizeArgs),
+    Close(SelectorArgs),
 }
 
 #[derive(Debug, Args)]
@@ -74,6 +84,30 @@ struct ListArgs {
     visible: bool,
     #[command(flatten)]
     selector: SelectorArgs,
+}
+
+#[derive(Debug, Args)]
+struct MoveArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long)]
+    x: i32,
+    #[arg(long)]
+    y: i32,
+    #[arg(long)]
+    width: Option<i32>,
+    #[arg(long)]
+    height: Option<i32>,
+}
+
+#[derive(Debug, Args)]
+struct ResizeArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long)]
+    width: i32,
+    #[arg(long)]
+    height: i32,
 }
 
 #[derive(Debug, Args, Clone, Default)]
@@ -133,6 +167,36 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                 let selector = require_selector(args.into_selector())?;
                 let window = focus_window(&selector)?;
                 emit(cli.json, &window)
+            }
+            WindowCommand::Restore(args) => {
+                let selector = require_selector(args.into_selector())?;
+                let result = restore_window(&selector)?;
+                emit(cli.json, &result)
+            }
+            WindowCommand::Minimize(args) => {
+                let selector = require_selector(args.into_selector())?;
+                let result = minimize_window(&selector)?;
+                emit(cli.json, &result)
+            }
+            WindowCommand::Maximize(args) => {
+                let selector = require_selector(args.into_selector())?;
+                let result = maximize_window(&selector)?;
+                emit(cli.json, &result)
+            }
+            WindowCommand::Move(args) => {
+                let selector = require_selector(args.selector.into_selector())?;
+                let result = move_window(&selector, args.x, args.y, args.width, args.height)?;
+                emit(cli.json, &result)
+            }
+            WindowCommand::Resize(args) => {
+                let selector = require_selector(args.selector.into_selector())?;
+                let result = resize_window(&selector, args.width, args.height)?;
+                emit(cli.json, &result)
+            }
+            WindowCommand::Close(args) => {
+                let selector = require_selector(args.into_selector())?;
+                let result = close_window(&selector)?;
+                emit(cli.json, &result)
             }
         },
     }
@@ -235,6 +299,13 @@ impl HumanOutput for Vec<WindowInfo> {
         }
 
         Ok(())
+    }
+}
+
+impl HumanOutput for WindowActionResult {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "action: {}", self.action).map_err(io_error)?;
+        self.window.write_human(writer)
     }
 }
 

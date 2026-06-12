@@ -7,10 +7,14 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, MoveWindow, PostMessageW,
+    SHOW_WINDOW_CMD, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    WM_CLOSE,
 };
 use windows::core::{BOOL, PWSTR};
-use winr_types::{Rect, WindowInfo, WindowSelector, WinrError, WinrResult, format_hwnd};
+use winr_types::{
+    Rect, WindowActionResult, WindowInfo, WindowSelector, WinrError, WinrResult, format_hwnd,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ListWindowsOptions {
@@ -76,6 +80,96 @@ pub fn focus_window(selector: &WindowSelector) -> WinrResult<WindowInfo> {
     }
 
     build_window_info(hwnd)
+}
+
+#[instrument(skip(selector))]
+pub fn restore_window(selector: &WindowSelector) -> WinrResult<WindowActionResult> {
+    show_window(selector, SW_RESTORE, "restore")
+}
+
+#[instrument(skip(selector))]
+pub fn minimize_window(selector: &WindowSelector) -> WinrResult<WindowActionResult> {
+    show_window(selector, SW_MINIMIZE, "minimize")
+}
+
+#[instrument(skip(selector))]
+pub fn maximize_window(selector: &WindowSelector) -> WinrResult<WindowActionResult> {
+    show_window(selector, SW_MAXIMIZE, "maximize")
+}
+
+#[instrument(skip(selector))]
+pub fn move_window(
+    selector: &WindowSelector,
+    x: i32,
+    y: i32,
+    width: Option<i32>,
+    height: Option<i32>,
+) -> WinrResult<WindowActionResult> {
+    let window = window_info(selector)?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+    let target_width = width.unwrap_or(window.rect.right - window.rect.left);
+    let target_height = height.unwrap_or(window.rect.bottom - window.rect.top);
+
+    debug!(
+        hwnd = %window.hwnd,
+        x,
+        y,
+        target_width,
+        target_height,
+        "moving window"
+    );
+
+    unsafe { MoveWindow(hwnd, x, y, target_width, target_height, true) }.map_err(|error| {
+        WinrError::Unsupported {
+            message: format!("MoveWindow failed for {}: {error}", window.hwnd),
+        }
+    })?;
+
+    Ok(WindowActionResult {
+        action: "move".to_string(),
+        window: build_window_info(hwnd)?,
+    })
+}
+
+#[instrument(skip(selector))]
+pub fn resize_window(
+    selector: &WindowSelector,
+    width: i32,
+    height: i32,
+) -> WinrResult<WindowActionResult> {
+    let window = window_info(selector)?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+
+    debug!(hwnd = %window.hwnd, width, height, "resizing window");
+
+    unsafe { MoveWindow(hwnd, window.rect.left, window.rect.top, width, height, true) }.map_err(
+        |error| WinrError::Unsupported {
+            message: format!("MoveWindow failed for {}: {error}", window.hwnd),
+        },
+    )?;
+
+    Ok(WindowActionResult {
+        action: "resize".to_string(),
+        window: build_window_info(hwnd)?,
+    })
+}
+
+#[instrument(skip(selector))]
+pub fn close_window(selector: &WindowSelector) -> WinrResult<WindowActionResult> {
+    let window = window_info(selector)?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+
+    debug!(hwnd = %window.hwnd, title = %window.title, "posting WM_CLOSE");
+    unsafe { PostMessageW(Some(hwnd), WM_CLOSE, Default::default(), Default::default()) }.map_err(
+        |error| WinrError::Unsupported {
+            message: format!("PostMessageW(WM_CLOSE) failed for {}: {error}", window.hwnd),
+        },
+    )?;
+
+    Ok(WindowActionResult {
+        action: "close".to_string(),
+        window,
+    })
 }
 
 #[instrument]
@@ -255,6 +349,24 @@ fn parse_selector_hwnd(hwnd: &str) -> HWND {
 
 fn hwnd_value(hwnd: HWND) -> isize {
     hwnd.0 as usize as isize
+}
+
+fn show_window(
+    selector: &WindowSelector,
+    cmd: SHOW_WINDOW_CMD,
+    action: &'static str,
+) -> WinrResult<WindowActionResult> {
+    let window = window_info(selector)?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+
+    debug!(hwnd = %window.hwnd, action, "calling ShowWindow");
+    let changed = unsafe { ShowWindow(hwnd, cmd) }.as_bool();
+    trace!(changed, action, "ShowWindow returned");
+
+    Ok(WindowActionResult {
+        action: action.to_string(),
+        window: build_window_info(hwnd)?,
+    })
 }
 
 #[cfg(test)]

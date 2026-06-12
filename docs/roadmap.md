@@ -18,7 +18,7 @@
 
 - [x] Report the current foreground window
 - [x] Focus a selected window with structured error handling
-- [ ] Restore, minimize, maximize, move, resize, and close windows
+- [x] Restore, minimize, maximize, move, resize, and close windows
 
 ## Screenshots
 

@@ -70,6 +70,12 @@ pub struct WindowInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowActionResult {
+    pub action: String,
+    pub window: WindowInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuccessResponse<T> {
     pub ok: bool,
     pub data: T,
@@ -230,5 +236,17 @@ mod tests {
         let json = serde_json::to_string(&sample_window()).unwrap();
         assert!(json.contains("\"hwnd\":\"0x0000000000001234\""));
         assert!(json.contains("\"class_name\":\"Notepad\""));
+    }
+
+    #[test]
+    fn serializes_window_action_result() {
+        let result = WindowActionResult {
+            action: "focus".to_string(),
+            window: sample_window(),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"action\":\"focus\""));
+        assert!(json.contains("\"window\""));
     }
 }
