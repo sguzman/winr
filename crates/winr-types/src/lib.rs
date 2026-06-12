@@ -75,6 +75,32 @@ pub struct WindowActionResult {
     pub window: WindowInfo,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenshotBackend {
+    Auto,
+    Gdi,
+    PrintWindow,
+}
+
+impl ScreenshotBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Gdi => "gdi",
+            Self::PrintWindow => "print_window",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenshotResult {
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+    pub backend: ScreenshotBackend,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuccessResponse<T> {
     pub ok: bool,
@@ -111,6 +137,8 @@ pub enum WinrError {
     IntegrityLevelDenied,
     #[error("permission denied: {reason}")]
     PermissionDenied { reason: String },
+    #[error("capture failed with backend {backend}: {message}")]
+    CaptureFailed { backend: String, message: String },
     #[error("unsupported operation: {message}")]
     Unsupported { message: String },
 }
@@ -123,6 +151,7 @@ impl WinrError {
             Self::ForegroundDenied => "ForegroundDenied",
             Self::IntegrityLevelDenied => "IntegrityLevelDenied",
             Self::PermissionDenied { .. } => "PermissionDenied",
+            Self::CaptureFailed { .. } => "CaptureFailed",
             Self::Unsupported { .. } => "Unsupported",
         }
     }
@@ -248,5 +277,19 @@ mod tests {
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"action\":\"focus\""));
         assert!(json.contains("\"window\""));
+    }
+
+    #[test]
+    fn serializes_screenshot_result() {
+        let result = ScreenshotResult {
+            path: "target/test.png".to_string(),
+            width: 100,
+            height: 80,
+            backend: ScreenshotBackend::Gdi,
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"backend\":\"gdi\""));
+        assert!(json.contains("\"path\":\"target/test.png\""));
     }
 }

@@ -1,15 +1,19 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{EnvFilter, fmt};
 use winr_core::{
     ListWindowsOptions, close_window, focus_window, foreground_window, list_windows,
-    maximize_window, minimize_window, move_window, resize_window, restore_window, window_info,
+    maximize_window, minimize_window, move_window, resize_window, restore_window,
+    screenshot_desktop, screenshot_window, window_info,
 };
 use winr_types::{
-    ErrorResponse, SuccessResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
-    format_hwnd, parse_hwnd,
+    ErrorResponse, ScreenshotBackend, ScreenshotResult, SuccessResponse, WindowActionResult,
+    WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -54,6 +58,10 @@ enum RootCommand {
         #[command(subcommand)]
         command: WindowsCommand,
     },
+    Screenshot {
+        #[command(subcommand)]
+        command: ScreenshotCommand,
+    },
     Window {
         #[command(subcommand)]
         command: WindowCommand,
@@ -64,6 +72,12 @@ enum RootCommand {
 enum WindowsCommand {
     List(ListArgs),
     Foreground,
+}
+
+#[derive(Debug, Subcommand)]
+enum ScreenshotCommand {
+    Desktop(DesktopScreenshotArgs),
+    Window(WindowScreenshotArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -108,6 +122,41 @@ struct ResizeArgs {
     width: i32,
     #[arg(long)]
     height: i32,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ScreenshotBackendArg {
+    Auto,
+    Gdi,
+    PrintWindow,
+}
+
+impl From<ScreenshotBackendArg> for ScreenshotBackend {
+    fn from(value: ScreenshotBackendArg) -> Self {
+        match value {
+            ScreenshotBackendArg::Auto => ScreenshotBackend::Auto,
+            ScreenshotBackendArg::Gdi => ScreenshotBackend::Gdi,
+            ScreenshotBackendArg::PrintWindow => ScreenshotBackend::PrintWindow,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct DesktopScreenshotArgs {
+    #[arg(long)]
+    out: PathBuf,
+    #[arg(long, value_enum, default_value = "auto")]
+    backend: ScreenshotBackendArg,
+}
+
+#[derive(Debug, Args)]
+struct WindowScreenshotArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(long)]
+    out: PathBuf,
+    #[arg(long, value_enum, default_value = "auto")]
+    backend: ScreenshotBackendArg,
 }
 
 #[derive(Debug, Args, Clone, Default)]
@@ -155,6 +204,17 @@ fn run(cli: Cli) -> Result<(), WinrError> {
             WindowsCommand::Foreground => {
                 let window = foreground_window()?;
                 emit(cli.json, &window)
+            }
+        },
+        RootCommand::Screenshot { command } => match command {
+            ScreenshotCommand::Desktop(args) => {
+                let result = screenshot_desktop(&args.out, args.backend.into())?;
+                emit(cli.json, &result)
+            }
+            ScreenshotCommand::Window(args) => {
+                let selector = require_selector(args.selector.into_selector())?;
+                let result = screenshot_window(&selector, &args.out, args.backend.into())?;
+                emit(cli.json, &result)
             }
         },
         RootCommand::Window { command } => match command {
@@ -306,6 +366,15 @@ impl HumanOutput for WindowActionResult {
     fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
         writeln!(writer, "action: {}", self.action).map_err(io_error)?;
         self.window.write_human(writer)
+    }
+}
+
+impl HumanOutput for ScreenshotResult {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "path: {}", self.path).map_err(io_error)?;
+        writeln!(writer, "width: {}", self.width).map_err(io_error)?;
+        writeln!(writer, "height: {}", self.height).map_err(io_error)?;
+        writeln!(writer, "backend: {}", self.backend.as_str()).map_err(io_error)
     }
 }
 

@@ -87,3 +87,21 @@ fn window_move_requires_coordinates_and_selector() {
     let output = run_winr(&["window", "move", "--x", "10", "--y", "20"]);
     assert!(!output.status.success(), "expected clap failure");
 }
+
+#[test]
+fn screenshot_window_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "screenshot",
+        "window",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "--out",
+        "target\\missing-window.png",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}

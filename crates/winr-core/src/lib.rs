@@ -1,19 +1,28 @@
 use std::path::Path;
 
+use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
 use tracing::{debug, instrument, trace, warn};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT};
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
+    CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, HBITMAP, HDC,
+    HGDIOBJ, ReleaseDC, SRCCOPY, SelectObject,
+};
+use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, MoveWindow, PostMessageW,
-    SHOW_WINDOW_CMD, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SetForegroundWindow, ShowWindow,
-    WM_CLOSE,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
+    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    MoveWindow, PostMessageW, SHOW_WINDOW_CMD, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+    SetForegroundWindow, ShowWindow, WM_CLOSE,
 };
 use windows::core::{BOOL, PWSTR};
 use winr_types::{
-    Rect, WindowActionResult, WindowInfo, WindowSelector, WinrError, WinrResult, format_hwnd,
+    Rect, ScreenshotBackend, ScreenshotResult, WindowActionResult, WindowInfo, WindowSelector,
+    WinrError, WinrResult, format_hwnd,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +179,77 @@ pub fn close_window(selector: &WindowSelector) -> WinrResult<WindowActionResult>
         action: "close".to_string(),
         window,
     })
+}
+
+#[instrument]
+pub fn screenshot_desktop(out: &Path, backend: ScreenshotBackend) -> WinrResult<ScreenshotResult> {
+    if matches!(backend, ScreenshotBackend::PrintWindow) {
+        return Err(WinrError::Unsupported {
+            message: "desktop screenshots support only the gdi or auto backend".to_string(),
+        });
+    }
+
+    let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+    let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+
+    debug!(left, top, width, height, path = %out.display(), "capturing desktop screenshot");
+    let image = capture_gdi(None, left, top, width, height)?;
+    save_image(out, image, ScreenshotBackend::Gdi)
+}
+
+#[instrument(skip(selector))]
+pub fn screenshot_window(
+    selector: &WindowSelector,
+    out: &Path,
+    backend: ScreenshotBackend,
+) -> WinrResult<ScreenshotResult> {
+    let window = window_info(selector)?;
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+
+    debug!(
+        hwnd = %window.hwnd,
+        title = %window.title,
+        backend = backend.as_str(),
+        path = %out.display(),
+        "capturing window screenshot"
+    );
+
+    let (image, used_backend) = match backend {
+        ScreenshotBackend::Auto => match capture_print_window(hwnd, &window) {
+            Ok(image) => (image, ScreenshotBackend::PrintWindow),
+            Err(error) => {
+                warn!(%error, hwnd = %window.hwnd, "PrintWindow capture failed, falling back to gdi");
+                (
+                    capture_gdi(
+                        Some(hwnd),
+                        0,
+                        0,
+                        window.rect.right - window.rect.left,
+                        window.rect.bottom - window.rect.top,
+                    )?,
+                    ScreenshotBackend::Gdi,
+                )
+            }
+        },
+        ScreenshotBackend::Gdi => (
+            capture_gdi(
+                Some(hwnd),
+                0,
+                0,
+                window.rect.right - window.rect.left,
+                window.rect.bottom - window.rect.top,
+            )?,
+            ScreenshotBackend::Gdi,
+        ),
+        ScreenshotBackend::PrintWindow => (
+            capture_print_window(hwnd, &window)?,
+            ScreenshotBackend::PrintWindow,
+        ),
+    };
+
+    save_image(out, image, used_backend)
 }
 
 #[instrument]
@@ -349,6 +429,276 @@ fn parse_selector_hwnd(hwnd: &str) -> HWND {
 
 fn hwnd_value(hwnd: HWND) -> isize {
     hwnd.0 as usize as isize
+}
+
+fn capture_gdi(
+    hwnd: Option<HWND>,
+    source_x: i32,
+    source_y: i32,
+    width: i32,
+    height: i32,
+) -> WinrResult<RgbaImage> {
+    if width <= 0 || height <= 0 {
+        return Err(WinrError::CaptureFailed {
+            backend: "gdi".to_string(),
+            message: "capture dimensions must be positive".to_string(),
+        });
+    }
+
+    let source_dc = unsafe { GetDC(hwnd) };
+    if source_dc.0.is_null() {
+        return Err(WinrError::CaptureFailed {
+            backend: "gdi".to_string(),
+            message: "GetDC returned a null device context".to_string(),
+        });
+    }
+
+    let memory_dc = unsafe { CreateCompatibleDC(Some(source_dc)) };
+    if memory_dc.0.is_null() {
+        unsafe { ReleaseDC(hwnd, source_dc) };
+        return Err(WinrError::CaptureFailed {
+            backend: "gdi".to_string(),
+            message: "CreateCompatibleDC returned a null device context".to_string(),
+        });
+    }
+
+    let bitmap = unsafe { CreateCompatibleBitmap(source_dc, width, height) };
+    if bitmap.0.is_null() {
+        cleanup_dc(hwnd, source_dc, memory_dc, None);
+        return Err(WinrError::CaptureFailed {
+            backend: "gdi".to_string(),
+            message: "CreateCompatibleBitmap returned a null bitmap".to_string(),
+        });
+    }
+
+    let previous = unsafe { SelectObject(memory_dc, HGDIOBJ(bitmap.0)) };
+    let result = capture_bits_from_dc(
+        "gdi",
+        hwnd,
+        source_dc,
+        memory_dc,
+        bitmap,
+        previous,
+        CaptureMode::BitBlt {
+            source_x,
+            source_y,
+            width,
+            height,
+        },
+    );
+    cleanup_dc(hwnd, source_dc, memory_dc, Some(bitmap));
+    result
+}
+
+fn capture_print_window(hwnd: HWND, window: &WindowInfo) -> WinrResult<RgbaImage> {
+    let width = window.rect.right - window.rect.left;
+    let height = window.rect.bottom - window.rect.top;
+    if width <= 0 || height <= 0 {
+        return Err(WinrError::CaptureFailed {
+            backend: "print_window".to_string(),
+            message: "window dimensions must be positive".to_string(),
+        });
+    }
+
+    let source_dc = unsafe { GetDC(Some(hwnd)) };
+    if source_dc.0.is_null() {
+        return Err(WinrError::CaptureFailed {
+            backend: "print_window".to_string(),
+            message: "GetDC returned a null device context".to_string(),
+        });
+    }
+
+    let memory_dc = unsafe { CreateCompatibleDC(Some(source_dc)) };
+    if memory_dc.0.is_null() {
+        unsafe { ReleaseDC(Some(hwnd), source_dc) };
+        return Err(WinrError::CaptureFailed {
+            backend: "print_window".to_string(),
+            message: "CreateCompatibleDC returned a null device context".to_string(),
+        });
+    }
+
+    let bitmap = unsafe { CreateCompatibleBitmap(source_dc, width, height) };
+    if bitmap.0.is_null() {
+        cleanup_dc(Some(hwnd), source_dc, memory_dc, None);
+        return Err(WinrError::CaptureFailed {
+            backend: "print_window".to_string(),
+            message: "CreateCompatibleBitmap returned a null bitmap".to_string(),
+        });
+    }
+
+    let previous = unsafe { SelectObject(memory_dc, HGDIOBJ(bitmap.0)) };
+    let result = capture_bits_from_dc(
+        "print_window",
+        Some(hwnd),
+        source_dc,
+        memory_dc,
+        bitmap,
+        previous,
+        CaptureMode::PrintWindow { width, height },
+    );
+    cleanup_dc(Some(hwnd), source_dc, memory_dc, Some(bitmap));
+    result
+}
+
+enum CaptureMode {
+    BitBlt {
+        source_x: i32,
+        source_y: i32,
+        width: i32,
+        height: i32,
+    },
+    PrintWindow {
+        width: i32,
+        height: i32,
+    },
+}
+
+fn capture_bits_from_dc(
+    backend: &str,
+    hwnd: Option<HWND>,
+    source_dc: HDC,
+    memory_dc: HDC,
+    bitmap: HBITMAP,
+    previous: HGDIOBJ,
+    mode: CaptureMode,
+) -> WinrResult<RgbaImage> {
+    let (width, height) = match mode {
+        CaptureMode::BitBlt {
+            source_x,
+            source_y,
+            width,
+            height,
+        } => {
+            unsafe {
+                BitBlt(
+                    memory_dc,
+                    0,
+                    0,
+                    width,
+                    height,
+                    Some(source_dc),
+                    source_x,
+                    source_y,
+                    SRCCOPY | CAPTUREBLT,
+                )
+            }
+            .map_err(|error| WinrError::CaptureFailed {
+                backend: backend.to_string(),
+                message: format!("BitBlt failed: {error}"),
+            })?;
+            (width, height)
+        }
+        CaptureMode::PrintWindow { width, height } => {
+            let captured = unsafe {
+                PrintWindow(
+                    hwnd.expect("window handle"),
+                    memory_dc,
+                    PRINT_WINDOW_FLAGS(0),
+                )
+            }
+            .as_bool();
+            if !captured {
+                return Err(WinrError::CaptureFailed {
+                    backend: backend.to_string(),
+                    message: "PrintWindow returned false".to_string(),
+                });
+            }
+            (width, height)
+        }
+    };
+
+    unsafe {
+        SelectObject(memory_dc, previous);
+    }
+
+    let mut bitmap_info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let buffer_len = (width as usize) * (height as usize) * 4;
+    let mut buffer = vec![0u8; buffer_len];
+    let scanlines = unsafe {
+        GetDIBits(
+            memory_dc,
+            bitmap,
+            0,
+            height as u32,
+            Some(buffer.as_mut_ptr() as *mut _),
+            &mut bitmap_info,
+            DIB_RGB_COLORS,
+        )
+    };
+
+    if scanlines == 0 {
+        return Err(WinrError::CaptureFailed {
+            backend: backend.to_string(),
+            message: "GetDIBits returned zero scanlines".to_string(),
+        });
+    }
+
+    for pixel in buffer.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+
+    ImageBuffer::<Rgba<u8>, Vec<u8>>::from_vec(width as u32, height as u32, buffer).ok_or_else(
+        || WinrError::CaptureFailed {
+            backend: backend.to_string(),
+            message: "failed to construct RGBA image buffer".to_string(),
+        },
+    )
+}
+
+fn cleanup_dc(hwnd: Option<HWND>, source_dc: HDC, memory_dc: HDC, bitmap: Option<HBITMAP>) {
+    if let Some(bitmap) = bitmap {
+        unsafe {
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        }
+    }
+    unsafe {
+        let _ = DeleteDC(memory_dc);
+        let _ = ReleaseDC(hwnd, source_dc);
+    }
+}
+
+fn save_image(
+    out: &Path,
+    image: RgbaImage,
+    backend: ScreenshotBackend,
+) -> WinrResult<ScreenshotResult> {
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| WinrError::CaptureFailed {
+            backend: backend.as_str().to_string(),
+            message: format!(
+                "failed to create parent directory {}: {error}",
+                parent.display()
+            ),
+        })?;
+    }
+
+    let width = image.width();
+    let height = image.height();
+    DynamicImage::ImageRgba8(image)
+        .save(out)
+        .map_err(|error| WinrError::CaptureFailed {
+            backend: backend.as_str().to_string(),
+            message: format!("failed to save screenshot to {}: {error}", out.display()),
+        })?;
+
+    Ok(ScreenshotResult {
+        path: out.display().to_string(),
+        width,
+        height,
+        backend,
+    })
 }
 
 fn show_window(

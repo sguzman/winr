@@ -22,9 +22,9 @@
 
 ## Screenshots
 
-- [ ] Capture desktop screenshots
-- [ ] Capture window screenshots
-- [ ] Add backend selection for GDI, `PrintWindow`, and future modern capture
+- [x] Capture desktop screenshots
+- [x] Capture window screenshots
+- [x] Add backend selection for GDI and `PrintWindow`, with room for future modern capture
 
 ## Input
 

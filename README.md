@@ -1,6 +1,6 @@
 # winr
 
-`winr` is a Windows 11 desktop automation toolkit in Rust. This first milestone focuses on a strong CLI foundation for discovering windows, inspecting metadata, identifying the foreground window, and attempting foreground focus with honest error reporting.
+`winr` is a Windows 11 desktop automation toolkit in Rust. The current milestone provides a strong CLI foundation for discovering windows, inspecting metadata, manipulating top-level windows, and capturing screenshots with honest error reporting.
 
 ## Current capabilities
 
@@ -10,6 +10,8 @@
 - Report the current foreground window
 - Attempt to focus a selected window
 - Restore, minimize, maximize, move, resize, and close selected windows
+- Capture desktop screenshots with GDI
+- Capture window screenshots with `PrintWindow` or GDI fallback
 - Emit extensive structured logs with `tracing`
 
 ## Project layout
@@ -61,6 +63,8 @@ cargo run -p winr-cli -- window info --title Notepad --json
 cargo run -p winr-cli -- window focus --hwnd 0x0012034A
 cargo run -p winr-cli -- window restore --title Notepad
 cargo run -p winr-cli -- window move --title Notepad --x 100 --y 100 --width 1280 --height 720
+cargo run -p winr-cli -- screenshot desktop --out target\\desktop.png
+cargo run -p winr-cli -- screenshot window --title Notepad --out target\\notepad.png --backend auto
 ```
 
 ## Command reference
@@ -106,6 +110,16 @@ winr window move --title Notepad --x 100 --y 100
 winr window move --title Notepad --x 100 --y 100 --width 1280 --height 720
 winr window resize --title Notepad --width 1280 --height 720
 winr window close --hwnd 0x0012034A --json
+```
+
+Screenshots:
+
+```powershell
+winr screenshot desktop --out target\desktop.png
+winr screenshot desktop --out target\desktop.jpg --backend gdi
+winr screenshot window --title Notepad --out target\notepad.png
+winr screenshot window --title Notepad --out target\notepad.png --backend print-window
+winr screenshot window --exe Code.exe --out target\code.jpg --backend gdi
 ```
 
 ## JSON output
@@ -154,6 +168,7 @@ The current logging coverage includes:
 - selector normalization and match counts
 - Win32 enumeration and foreground checks
 - focus attempts and failures
+- screenshot backend selection and fallback behavior
 - JSON error conversion
 
 ## Roadmap summary
@@ -171,6 +186,8 @@ The current command tree is:
 ```text
 winr windows list
 winr windows foreground
+winr screenshot desktop
+winr screenshot window
 winr window info
 winr window focus
 winr window restore
