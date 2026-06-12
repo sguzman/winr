@@ -188,6 +188,13 @@ pub enum ProfileDetector {
         tolerance: u8,
         min_pixels: u32,
     },
+    TemplateMatch {
+        image_path: String,
+        pixel_tolerance: u8,
+        min_match_percent: u8,
+        #[serde(default = "default_sample_stride")]
+        sample_stride: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -229,6 +236,10 @@ pub struct ProfileRunResult {
     pub profile_name: String,
     pub clicks_fired: u64,
     pub target_window: WindowInfo,
+}
+
+const fn default_sample_stride() -> u32 {
+    3
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

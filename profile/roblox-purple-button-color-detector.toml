@@ -8,9 +8,9 @@
 # - screenshots must be allowed in config because detection captures the target window
 
 [profile]
-id = "roblox-purple-button-color-detector"
-name = "Roblox Purple Button Color Detector"
-description = "Detects a purple button-like color cluster in Roblox and clicks it once per appearance."
+id = "roblox-purple-button-template-detector"
+name = "Roblox Purple Button Template Detector"
+description = "Detects the cropped purple Roblox icon template on screen and clicks it once per appearance."
 version = "1"
 
 [target]
@@ -24,12 +24,11 @@ button = "left"
 click_point = "center"
 
 [detector]
-kind = "color_match"
-red = 179
-green = 48
-blue = 218
-tolerance = 40
-min_pixels = 200
+kind = "template_match"
+image_path = "profile/assets/roblox-purple-icon-x2.png"
+pixel_tolerance = 28
+min_match_percent = 78
+sample_stride = 3
 
 [schedule]
 mode = "interval"

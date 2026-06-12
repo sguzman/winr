@@ -1,11 +1,11 @@
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use image::RgbaImage;
+use image::{ImageReader, RgbaImage};
 use tracing::{debug, info, instrument, trace, warn};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
@@ -76,6 +76,7 @@ where
     G: FnMut() -> bool,
 {
     validate_profile(profile)?;
+    let prepared_detector = prepare_detector(profile.detector.as_ref())?;
 
     let started_at = Instant::now();
     let selector = profile.target.clone();
@@ -168,7 +169,7 @@ where
         }
 
         let mut clicked = false;
-        if let Some(detector) = &profile.detector {
+        if let Some(detector) = prepared_detector.as_ref() {
             let capture = capture_window_live_image(&target)?;
             if let Some(match_result) = detect_match(&capture, detector)? {
                 let (client_x, client_y) =
@@ -274,6 +275,31 @@ fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
         if *min_pixels == 0 {
             return Err(WinrError::Unsupported {
                 message: "color detector min_pixels must be greater than zero".to_string(),
+            });
+        }
+    }
+
+    if let Some(ProfileDetector::TemplateMatch {
+        image_path,
+        min_match_percent,
+        sample_stride,
+        ..
+    }) = &profile.detector
+    {
+        if image_path.trim().is_empty() {
+            return Err(WinrError::Unsupported {
+                message: "template detector image_path must not be empty".to_string(),
+            });
+        }
+        if *min_match_percent == 0 || *min_match_percent > 100 {
+            return Err(WinrError::Unsupported {
+                message: "template detector min_match_percent must be between 1 and 100"
+                    .to_string(),
+            });
+        }
+        if *sample_stride == 0 {
+            return Err(WinrError::Unsupported {
+                message: "template detector sample_stride must be greater than zero".to_string(),
             });
         }
     }
@@ -468,9 +494,77 @@ struct DetectorMatch {
     pixel_count: u32,
 }
 
-fn detect_match(image: &RgbaImage, detector: &ProfileDetector) -> WinrResult<Option<DetectorMatch>> {
+enum PreparedDetector {
+    ColorMatch {
+        red: u8,
+        green: u8,
+        blue: u8,
+        tolerance: u8,
+        min_pixels: u32,
+    },
+    TemplateMatch {
+        template: RgbaImage,
+        pixel_tolerance: u8,
+        min_match_percent: u8,
+        sample_stride: u32,
+    },
+}
+
+fn prepare_detector(detector: Option<&ProfileDetector>) -> WinrResult<Option<PreparedDetector>> {
+    let Some(detector) = detector else {
+        return Ok(None);
+    };
+
     match detector {
         ProfileDetector::ColorMatch {
+            red,
+            green,
+            blue,
+            tolerance,
+            min_pixels,
+        } => Ok(Some(PreparedDetector::ColorMatch {
+            red: *red,
+            green: *green,
+            blue: *blue,
+            tolerance: *tolerance,
+            min_pixels: *min_pixels,
+        })),
+        ProfileDetector::TemplateMatch {
+            image_path,
+            pixel_tolerance,
+            min_match_percent,
+            sample_stride,
+        } => {
+            let template = load_template_image(image_path)?;
+            Ok(Some(PreparedDetector::TemplateMatch {
+                template,
+                pixel_tolerance: *pixel_tolerance,
+                min_match_percent: *min_match_percent,
+                sample_stride: *sample_stride,
+            }))
+        }
+    }
+}
+
+fn load_template_image(path: &str) -> WinrResult<RgbaImage> {
+    let full_path = PathBuf::from(path);
+    let image = ImageReader::open(&full_path)
+        .map_err(|error| WinrError::Unsupported {
+            message: format!("failed to open template image {}: {error}", full_path.display()),
+        })?
+        .decode()
+        .map_err(|error| WinrError::Unsupported {
+            message: format!("failed to decode template image {}: {error}", full_path.display()),
+        })?;
+    Ok(image.to_rgba8())
+}
+
+fn detect_match(
+    image: &RgbaImage,
+    detector: &PreparedDetector,
+) -> WinrResult<Option<DetectorMatch>> {
+    match detector {
+        PreparedDetector::ColorMatch {
             red,
             green,
             blue,
@@ -481,6 +575,18 @@ fn detect_match(image: &RgbaImage, detector: &ProfileDetector) -> WinrResult<Opt
             (*red, *green, *blue),
             *tolerance,
             *min_pixels,
+        )),
+        PreparedDetector::TemplateMatch {
+            template,
+            pixel_tolerance,
+            min_match_percent,
+            sample_stride,
+        } => Ok(detect_template_match(
+            image,
+            template,
+            *pixel_tolerance,
+            *min_match_percent,
+            *sample_stride,
         )),
     }
 }
@@ -551,6 +657,89 @@ fn detect_color_match(
     }
 
     best
+}
+
+fn detect_template_match(
+    image: &RgbaImage,
+    template: &RgbaImage,
+    pixel_tolerance: u8,
+    min_match_percent: u8,
+    sample_stride: u32,
+) -> Option<DetectorMatch> {
+    let image_width = image.width();
+    let image_height = image.height();
+    let template_width = template.width();
+    let template_height = template.height();
+    if template_width == 0
+        || template_height == 0
+        || template_width > image_width
+        || template_height > image_height
+    {
+        return None;
+    }
+
+    let stride = sample_stride.max(1) as usize;
+    let mut best_score = 0_u32;
+    let mut best_total = 0_u32;
+    let mut best_position = None;
+
+    let max_y = (image_height - template_height) as usize;
+    let max_x = (image_width - template_width) as usize;
+    for offset_y in (0..=max_y).step_by(stride) {
+        for offset_x in (0..=max_x).step_by(stride) {
+            let mut matched = 0_u32;
+            let mut total = 0_u32;
+
+            for template_y in (0..template_height as usize).step_by(stride) {
+                for template_x in (0..template_width as usize).step_by(stride) {
+                    let template_pixel = template.get_pixel(template_x as u32, template_y as u32).0;
+                    let image_pixel = image
+                        .get_pixel((offset_x + template_x) as u32, (offset_y + template_y) as u32)
+                        .0;
+                    total += 1;
+                    if color_within_tolerance(
+                        image_pixel[0],
+                        image_pixel[1],
+                        image_pixel[2],
+                        (template_pixel[0], template_pixel[1], template_pixel[2]),
+                        pixel_tolerance,
+                    ) {
+                        matched += 1;
+                    }
+                }
+            }
+
+            if total == 0 {
+                continue;
+            }
+
+            let percent = matched * 100 / total;
+            if percent >= min_match_percent as u32
+                && (matched > best_score || (matched == best_score && total > best_total))
+            {
+                best_score = matched;
+                best_total = total;
+                best_position = Some((offset_x as i32, offset_y as i32));
+            }
+        }
+    }
+
+    best_position.map(|(offset_x, offset_y)| DetectorMatch {
+        x: offset_x + random_click_offset(template_width as i32),
+        y: offset_y + random_click_offset(template_height as i32),
+        pixel_count: best_score,
+    })
+}
+
+fn random_click_offset(size: i32) -> i32 {
+    let min = (size / 4).max(1);
+    let max = ((size * 3) / 4).max(min + 1);
+    let span = (max - min).max(1) as u64;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.subsec_nanos() as u64)
+        .unwrap_or(0);
+    min + (nanos % span) as i32
 }
 
 fn neighbors(
@@ -672,6 +861,9 @@ stop_on_focus_loss = true
                 assert_eq!((*red, *green, *blue), (179, 48, 218));
                 assert_eq!(*tolerance, 40);
                 assert_eq!(*min_pixels, 200);
+            }
+            ProfileDetector::TemplateMatch { .. } => {
+                panic!("sample profile should use the color detector in this unit test")
             }
         }
         match profile.action {
@@ -908,7 +1100,7 @@ stop_on_focus_loss = true
 
         let found = detect_match(
             &image,
-            &ProfileDetector::ColorMatch {
+            &PreparedDetector::ColorMatch {
                 red: 179,
                 green: 48,
                 blue: 218,
