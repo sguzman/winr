@@ -4,8 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+dirs.workspace = true
 image.workspace = true
 serde.workspace = true
+toml.workspace = true
 tracing.workspace = true
 windows.workspace = true
 winr-types = { path = "../winr-types" }

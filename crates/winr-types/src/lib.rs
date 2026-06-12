@@ -279,6 +279,8 @@ pub enum WinrError {
     PermissionDenied { reason: String },
     #[error("capture failed with backend {backend}: {message}")]
     CaptureFailed { backend: String, message: String },
+    #[error("unsupported for minimized window during {action}")]
+    UnsupportedForMinimizedWindow { action: String },
     #[error("no UI Automation elements matched the provided selector")]
     UiaElementNotFound,
     #[error("{count} UI Automation elements matched the provided selector")]
@@ -299,6 +301,7 @@ impl WinrError {
             Self::IntegrityLevelDenied => "IntegrityLevelDenied",
             Self::PermissionDenied { .. } => "PermissionDenied",
             Self::CaptureFailed { .. } => "CaptureFailed",
+            Self::UnsupportedForMinimizedWindow { .. } => "UnsupportedForMinimizedWindow",
             Self::UiaElementNotFound => "UiaElementNotFound",
             Self::AmbiguousUiaElement { .. } => "AmbiguousUiaElement",
             Self::Unsupported { .. } => "Unsupported",

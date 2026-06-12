@@ -121,7 +121,7 @@ enum WindowCommand {
     Maximize(SelectorArgs),
     Move(MoveArgs),
     Resize(ResizeArgs),
-    Close(SelectorArgs),
+    Close(CloseArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -167,6 +167,17 @@ struct ResizeArgs {
     width: i32,
     #[arg(long)]
     height: i32,
+}
+
+#[derive(Debug, Args)]
+struct CloseArgs {
+    #[command(flatten)]
+    selector: SelectorArgs,
+    #[arg(
+        long,
+        help = "Acknowledge the configured close confirmation requirement"
+    )]
+    force: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -498,11 +509,11 @@ fn run(cli: Cli) -> Result<(), WinrError> {
             }
         },
         RootCommand::Mcp { command } => match command {
-            McpCommand::Serve => winr_mcp::serve_stdio_blocking().map_err(|error| {
-                WinrError::Unsupported {
+            McpCommand::Serve => {
+                winr_mcp::serve_stdio_blocking().map_err(|error| WinrError::Unsupported {
                     message: format!("failed to serve MCP over stdio: {error}"),
-                }
-            }),
+                })
+            }
         },
         RootCommand::Window { command } => match command {
             WindowCommand::Info(args) => {
@@ -541,8 +552,8 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                 emit(cli.json, &result)
             }
             WindowCommand::Close(args) => {
-                let selector = require_selector(args.into_selector())?;
-                let result = close_window(&selector)?;
+                let selector = require_selector(args.selector.into_selector())?;
+                let result = close_window(&selector, args.force)?;
                 emit(cli.json, &result)
             }
         },

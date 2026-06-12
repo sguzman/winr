@@ -46,9 +46,9 @@
 
 ## Safety model
 
-- [ ] Add configurable permissions and process allow/deny lists
-- [ ] Detect integrity-level mismatch and return clear errors
-- [ ] Expand structured error coverage for dangerous or unsupported actions
+- [x] Add configurable permissions and process allow/deny lists
+- [x] Detect integrity-level mismatch and return clear errors
+- [x] Expand structured error coverage for dangerous or unsupported actions
 
 ## Docs and quality
 
@@ -56,5 +56,5 @@
 - [x] Add unit tests for selectors, HWND parsing, and JSON serialization
 - [x] Add CLI integration tests for JSON output and error flows
 - [x] Document UI Automation and MCP workflows
-- [ ] Add screenshot and input validation coverage
-- [ ] Document future safety policy and permission workflows in more depth
+- [x] Add screenshot and input validation coverage
+- [x] Document future safety policy and permission workflows in more depth

@@ -1,4 +1,9 @@
-use std::process::Command;
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde_json::Value;
 
@@ -7,6 +12,31 @@ fn run_winr(args: &[&str]) -> std::process::Output {
         .args(args)
         .output()
         .expect("failed to run winr")
+}
+
+fn run_winr_with_config(args: &[&str], config_contents: &str) -> std::process::Output {
+    let config_path = temp_config_path();
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent).expect("failed to create temp config dir");
+    }
+    fs::write(&config_path, config_contents).expect("failed to write temp config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_winr"))
+        .args(args)
+        .env("WINR_CONFIG", &config_path)
+        .output()
+        .expect("failed to run winr with temp config");
+
+    let _ = fs::remove_file(&config_path);
+    output
+}
+
+fn temp_config_path() -> PathBuf {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_millis();
+    std::env::temp_dir().join(format!("winr-test-config-{millis}.toml"))
 }
 
 #[test]
@@ -141,4 +171,40 @@ fn mouse_click_window_reports_not_found() {
     let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"], "WindowNotFound");
+}
+
+#[test]
+fn screenshot_desktop_honors_permission_config() {
+    let output = run_winr_with_config(
+        &[
+            "--json",
+            "screenshot",
+            "desktop",
+            "--out",
+            "target\\denied-desktop.png",
+        ],
+        r#"
+[permissions]
+allow_input = true
+allow_mouse = true
+allow_screenshots = false
+allow_window_close = false
+require_confirm_for_close = true
+"#,
+    );
+
+    assert!(!output.status.success(), "expected permission failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "PermissionDenied");
+}
+
+#[test]
+fn mouse_click_requires_both_coordinates_in_json_mode() {
+    let output = run_winr(&["--json", "mouse", "click", "--x", "10"]);
+
+    assert!(!output.status.success(), "expected validation failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "Unsupported");
 }

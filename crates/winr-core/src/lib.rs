@@ -1,8 +1,16 @@
+mod config;
+mod security;
 mod uia;
 
 use std::{path::Path, thread, time::Duration};
 
+use config::{
+    enforce_input_permission, enforce_mouse_permission, enforce_screenshot_permission,
+    enforce_window_close_permission, validate_window_ready_for_input,
+    validate_window_ready_for_mouse,
+};
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
+use security::enforce_integrity_level_for_pid;
 use tracing::{debug, instrument, trace, warn};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
@@ -36,6 +44,7 @@ use winr_types::{
     WindowSelector, WinrError, WinrResult, format_hwnd,
 };
 
+pub use config::current_mcp_config;
 pub use uia::{uia_find, uia_invoke, uia_set_text, uia_tree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,8 +186,10 @@ pub fn resize_window(
 }
 
 #[instrument(skip(selector))]
-pub fn close_window(selector: &WindowSelector) -> WinrResult<WindowActionResult> {
+pub fn close_window(selector: &WindowSelector, force: bool) -> WinrResult<WindowActionResult> {
     let window = window_info(selector)?;
+    enforce_window_close_permission(&window, force)?;
+    enforce_integrity_level_for_pid(window.pid, "window_close")?;
     let hwnd = parse_selector_hwnd(&window.hwnd);
 
     debug!(hwnd = %window.hwnd, title = %window.title, "posting WM_CLOSE");
@@ -201,6 +212,10 @@ pub fn input_text(
     focus_first: bool,
 ) -> WinrResult<InputActionResult> {
     let window = resolve_input_target(selector, focus_first)?;
+    if let Some(window) = &window {
+        enforce_input_permission(window, "input_text")?;
+        enforce_integrity_level_for_pid(window.pid, "input_text")?;
+    }
     let inputs = unicode_inputs(text);
 
     debug!(
@@ -226,6 +241,10 @@ pub fn input_keys(
     focus_first: bool,
 ) -> WinrResult<InputActionResult> {
     let window = resolve_input_target(selector, focus_first)?;
+    if let Some(window) = &window {
+        enforce_input_permission(window, "input_keys")?;
+        enforce_integrity_level_for_pid(window.pid, "input_keys")?;
+    }
     let inputs = combo_inputs(combo)?;
 
     debug!(
@@ -252,6 +271,10 @@ pub fn input_sequence(
     focus_first: bool,
 ) -> WinrResult<InputActionResult> {
     let window = resolve_input_target(selector, focus_first)?;
+    if let Some(window) = &window {
+        enforce_input_permission(window, "input_sequence")?;
+        enforce_integrity_level_for_pid(window.pid, "input_sequence")?;
+    }
     let mut inputs = Vec::new();
 
     for step in steps {
@@ -285,6 +308,7 @@ pub fn mouse_click(
     x: Option<i32>,
     y: Option<i32>,
 ) -> WinrResult<InputActionResult> {
+    enforce_mouse_permission(None, "mouse_click")?;
     if let (Some(x), Some(y)) = (x, y) {
         debug!(x, y, "moving cursor before mouse click");
         unsafe { SetCursorPos(x, y) }.map_err(|error| WinrError::Unsupported {
@@ -319,6 +343,9 @@ pub fn mouse_click_window(
     } else {
         window_info(selector)?
     };
+    validate_window_ready_for_mouse(&window, "mouse_click_window")?;
+    enforce_mouse_permission(Some(&window), "mouse_click_window")?;
+    enforce_integrity_level_for_pid(window.pid, "mouse_click_window")?;
     let hwnd = parse_selector_hwnd(&window.hwnd);
     let mut point = POINT { x, y };
     let converted = unsafe { ClientToScreen(hwnd, &mut point) }.as_bool();
@@ -359,6 +386,7 @@ pub fn mouse_click_window(
 
 #[instrument]
 pub fn screenshot_desktop(out: &Path, backend: ScreenshotBackend) -> WinrResult<ScreenshotResult> {
+    enforce_screenshot_permission(None)?;
     if matches!(backend, ScreenshotBackend::PrintWindow) {
         return Err(WinrError::Unsupported {
             message: "desktop screenshots support only the gdi or auto backend".to_string(),
@@ -382,6 +410,7 @@ pub fn screenshot_window(
     backend: ScreenshotBackend,
 ) -> WinrResult<ScreenshotResult> {
     let window = window_info(selector)?;
+    enforce_screenshot_permission(Some(&window))?;
     let hwnd = parse_selector_hwnd(&window.hwnd);
 
     debug!(
@@ -933,6 +962,7 @@ fn resolve_input_target(
             } else {
                 window_info(selector)?
             };
+            validate_window_ready_for_input(&window, focus_first, "input")?;
             if focus_first {
                 thread::sleep(Duration::from_millis(40));
             }
@@ -1194,6 +1224,22 @@ mod tests {
             Ok(_) => panic!("expected combo parser to reject multiple primary keys"),
             Err(error) => error,
         };
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn desktop_screenshot_rejects_print_window_backend() {
+        let error = screenshot_desktop(
+            std::path::Path::new("target/should-not-exist.png"),
+            ScreenshotBackend::PrintWindow,
+        )
+        .unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn mouse_click_requires_both_coordinates() {
+        let error = mouse_click(MouseButton::Left, Some(10), None).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
     }
 }

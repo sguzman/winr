@@ -13,12 +13,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
 use winr_core::{
-    ListWindowsOptions, focus_window as core_focus_window, input_keys as core_input_keys,
-    input_text as core_input_text, list_windows as core_list_windows,
-    mouse_click as core_mouse_click, mouse_click_window as core_mouse_click_window,
-    move_window as core_move_window, restore_window as core_restore_window,
-    screenshot_window as core_screenshot_window, uia_find as core_uia_find,
-    uia_invoke as core_uia_invoke, uia_set_text as core_uia_set_text,
+    ListWindowsOptions, current_mcp_config, focus_window as core_focus_window,
+    input_keys as core_input_keys, input_text as core_input_text,
+    list_windows as core_list_windows, mouse_click as core_mouse_click,
+    mouse_click_window as core_mouse_click_window, move_window as core_move_window,
+    restore_window as core_restore_window, screenshot_window as core_screenshot_window,
+    uia_find as core_uia_find, uia_invoke as core_uia_invoke, uia_set_text as core_uia_set_text,
     uia_tree as core_uia_tree, window_info as core_window_info,
 };
 use winr_types::{
@@ -114,7 +114,13 @@ impl From<MouseButtonParam> for winr_core::MouseButton {
 }
 
 pub async fn serve_stdio() -> anyhow::Result<()> {
-    info!("starting winr MCP stdio server");
+    let mcp = current_mcp_config().context("failed to load winr MCP config")?;
+    info!(
+        bind = %mcp.bind,
+        transport = %mcp.transport,
+        log_tool_calls = mcp.log_tool_calls,
+        "starting winr MCP stdio server"
+    );
     let transport = rmcp::transport::io::stdio();
     WinrMcpServer
         .serve(transport)
@@ -148,7 +154,10 @@ impl WinrMcpServer {
         ))
     }
 
-    #[rmcp::tool(name = "window_info", description = "Inspect one matching top-level window")]
+    #[rmcp::tool(
+        name = "window_info",
+        description = "Inspect one matching top-level window"
+    )]
     #[instrument(skip(self, params))]
     async fn window_info(
         &self,
@@ -157,7 +166,10 @@ impl WinrMcpServer {
         from_winr(core_window_info(&params.selector))
     }
 
-    #[rmcp::tool(name = "window_focus", description = "Bring a matching window to the foreground")]
+    #[rmcp::tool(
+        name = "window_focus",
+        description = "Bring a matching window to the foreground"
+    )]
     #[instrument(skip(self, params))]
     async fn window_focus(
         &self,
@@ -166,7 +178,10 @@ impl WinrMcpServer {
         from_winr(core_focus_window(&params.selector))
     }
 
-    #[rmcp::tool(name = "window_restore", description = "Restore a minimized or hidden window")]
+    #[rmcp::tool(
+        name = "window_restore",
+        description = "Restore a minimized or hidden window"
+    )]
     #[instrument(skip(self, params))]
     async fn window_restore(
         &self,
@@ -175,7 +190,10 @@ impl WinrMcpServer {
         from_winr(core_restore_window(&params.selector))
     }
 
-    #[rmcp::tool(name = "window_move", description = "Move and optionally resize a window")]
+    #[rmcp::tool(
+        name = "window_move",
+        description = "Move and optionally resize a window"
+    )]
     #[instrument(skip(self, params))]
     async fn window_move(
         &self,
@@ -190,18 +208,27 @@ impl WinrMcpServer {
         ))
     }
 
-    #[rmcp::tool(name = "window_screenshot", description = "Capture a screenshot of a window")]
+    #[rmcp::tool(
+        name = "window_screenshot",
+        description = "Capture a screenshot of a window"
+    )]
     #[instrument(skip(self, params))]
     async fn window_screenshot(
         &self,
         Parameters(params): Parameters<WindowScreenshotParams>,
     ) -> McpToolResult<ScreenshotResult> {
-        let out = params.out.map(PathBuf::from).unwrap_or_else(default_screenshot_path);
+        let out = params
+            .out
+            .map(PathBuf::from)
+            .unwrap_or_else(default_screenshot_path);
         let backend = params.backend.unwrap_or(ScreenshotBackend::Auto);
         from_winr(core_screenshot_window(&params.selector, &out, backend))
     }
 
-    #[rmcp::tool(name = "input_send_keys", description = "Send a key combination to a window")]
+    #[rmcp::tool(
+        name = "input_send_keys",
+        description = "Send a key combination to a window"
+    )]
     #[instrument(skip(self, params))]
     async fn input_send_keys(
         &self,
@@ -227,7 +254,10 @@ impl WinrMcpServer {
         ))
     }
 
-    #[rmcp::tool(name = "mouse_click", description = "Click at screen coordinates or within a selected window")]
+    #[rmcp::tool(
+        name = "mouse_click",
+        description = "Click at screen coordinates or within a selected window"
+    )]
     #[instrument(skip(self, params))]
     async fn mouse_click(
         &self,
@@ -255,7 +285,10 @@ impl WinrMcpServer {
         from_winr(result)
     }
 
-    #[rmcp::tool(name = "uia_tree", description = "Read the UI Automation tree for a window")]
+    #[rmcp::tool(
+        name = "uia_tree",
+        description = "Read the UI Automation tree for a window"
+    )]
     #[instrument(skip(self, params))]
     async fn uia_tree(
         &self,
@@ -264,7 +297,10 @@ impl WinrMcpServer {
         from_winr(core_uia_tree(&params))
     }
 
-    #[rmcp::tool(name = "uia_find", description = "Find UI Automation elements within a window")]
+    #[rmcp::tool(
+        name = "uia_find",
+        description = "Find UI Automation elements within a window"
+    )]
     #[instrument(skip(self, params))]
     async fn uia_find(
         &self,
@@ -282,7 +318,10 @@ impl WinrMcpServer {
         from_winr(core_uia_invoke(&params))
     }
 
-    #[rmcp::tool(name = "uia_set_text", description = "Set the value of a UI Automation element")]
+    #[rmcp::tool(
+        name = "uia_set_text",
+        description = "Set the value of a UI Automation element"
+    )]
     #[instrument(skip(self, params))]
     async fn uia_set_text(
         &self,

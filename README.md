@@ -29,6 +29,7 @@ The project is built around a simple rule: prove the Windows primitives locally 
 - `crates/winr-cli`: the `winr` binary
 - `crates/winr-mcp`: stdio MCP server backed only by `winr-core`
 - `docs/roadmap.md`: checkbox roadmap and milestone tracker
+- `docs/safety.md`: config format, permission model, and integrity-level behavior
 - `tmp/project.md`: current product spec driving implementation
 
 ## Architecture
@@ -106,7 +107,7 @@ winr window focus --exe notepad.exe
 winr window restore --title Notepad
 winr window move --title Notepad --x 100 --y 100 --width 1280 --height 720
 winr window resize --title Notepad --width 1280 --height 720
-winr window close --hwnd 0x0012034A --json
+winr window close --hwnd 0x0012034A --force --json
 ```
 
 Screenshots:
@@ -241,6 +242,38 @@ The current MCP server exposes:
 
 The MCP layer does not expose arbitrary shell execution.
 
+## Safety and permissions
+
+`winr` reads a config file from `%APPDATA%\winr\config.toml` by default, or from `WINR_CONFIG` when that environment variable is set.
+
+Example:
+
+```toml
+[permissions]
+allow_input = true
+allow_mouse = true
+allow_screenshots = true
+allow_window_close = false
+require_confirm_for_close = true
+
+[allowlist]
+processes = ["notepad.exe", "Code.exe"]
+
+[denylist]
+processes = ["KeePassXC.exe", "1Password.exe", "Bitwarden.exe"]
+titles = ["Bank", "Password", "Authenticator"]
+```
+
+Current behavior:
+
+- screenshots, input, mouse actions, and window close can be disabled by config
+- risky target actions honor executable allowlists and process/title denylists
+- `window close` requires `--force` when `require_confirm_for_close = true`
+- risky actions against higher-integrity targets return `IntegrityLevelDenied`
+- minimized targets now return `UnsupportedForMinimizedWindow` for unsafe direct-input flows
+
+See [docs/safety.md](docs/safety.md) for the full workflow.
+
 ## Roadmap summary
 
 Completed so far:
@@ -254,8 +287,6 @@ Completed so far:
 
 Still ahead:
 
-- richer safety policy and permissions
-- stronger screenshot and input validation coverage
 - deeper UI Automation patterns and broader desktop compatibility
 
 See [docs/roadmap.md](docs/roadmap.md) for the tracked checklist.

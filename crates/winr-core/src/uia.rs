@@ -4,9 +4,9 @@ use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
 };
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, CUIAutomation8, IUIAutomation, IUIAutomationElement,
-    IUIAutomationElementArray, IUIAutomationInvokePattern, IUIAutomationTreeWalker,
-    IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId, UIA_ValuePatternId,
+    CUIAutomation, CUIAutomation8, IUIAutomation, IUIAutomationElement, IUIAutomationElementArray,
+    IUIAutomationInvokePattern, IUIAutomationTreeWalker, IUIAutomationValuePattern,
+    TreeScope_Subtree, UIA_InvokePatternId, UIA_ValuePatternId,
 };
 use windows::core::{BSTR, Error as WindowsError};
 use winr_types::{
@@ -15,7 +15,10 @@ use winr_types::{
     WinrError, WinrResult, format_hwnd,
 };
 
-use crate::{parse_selector_hwnd, window_info};
+use crate::{
+    config::enforce_input_permission, parse_selector_hwnd,
+    security::enforce_integrity_level_for_pid, window_info,
+};
 
 #[instrument(skip(request))]
 pub fn uia_tree(request: &UiaTreeRequest) -> WinrResult<UiaTreeResponse> {
@@ -60,6 +63,8 @@ pub fn uia_find(request: &UiaFindRequest) -> WinrResult<UiaFindResponse> {
 #[instrument(skip(request))]
 pub fn uia_invoke(request: &UiaActionRequest) -> WinrResult<UiaActionResult> {
     let (window, element, native) = resolve_single_element(&request.window, &request.element)?;
+    enforce_input_permission(&window, "uia_invoke")?;
+    enforce_integrity_level_for_pid(window.pid, "uia_invoke")?;
     debug!(
         hwnd = %window.hwnd,
         element_name = ?element.name,
@@ -85,6 +90,8 @@ pub fn uia_invoke(request: &UiaActionRequest) -> WinrResult<UiaActionResult> {
 #[instrument(skip(request))]
 pub fn uia_set_text(request: &UiaSetTextRequest) -> WinrResult<UiaActionResult> {
     let (window, element, native) = resolve_single_element(&request.window, &request.element)?;
+    enforce_input_permission(&window, "uia_set_text")?;
+    enforce_integrity_level_for_pid(window.pid, "uia_set_text")?;
     debug!(
         hwnd = %window.hwnd,
         element_name = ?element.name,
@@ -136,7 +143,10 @@ fn resolve_native_element(
     let matches = find_matching_native_elements(root, selector)?;
     match matches.len() {
         0 => Err(WinrError::UiaElementNotFound),
-        1 => Ok(matches.into_iter().next().expect("single UIA match present")),
+        1 => Ok(matches
+            .into_iter()
+            .next()
+            .expect("single UIA match present")),
         count => Err(WinrError::AmbiguousUiaElement {
             count,
             matches: matches
@@ -250,7 +260,14 @@ fn automation_root(
     hwnd: HWND,
     window: &WindowInfo,
 ) -> WinrResult<IUIAutomationElement> {
-    unsafe { automation.ElementFromHandle(hwnd).map_err(|error| windows_operation_error(error, format!("ElementFromHandle failed for {}", window.hwnd))) }
+    unsafe {
+        automation.ElementFromHandle(hwnd).map_err(|error| {
+            windows_operation_error(
+                error,
+                format!("ElementFromHandle failed for {}", window.hwnd),
+            )
+        })
+    }
 }
 
 fn describe_element(element: &IUIAutomationElement) -> WinrResult<UiaElementInfo> {
@@ -260,8 +277,8 @@ fn describe_element(element: &IUIAutomationElement) -> WinrResult<UiaElementInfo
     let name = unsafe { element.CurrentName().ok() }.and_then(bstr_to_option);
     let automation_id = unsafe { element.CurrentAutomationId().ok() }.and_then(bstr_to_option);
     let class_name = unsafe { element.CurrentClassName().ok() }.and_then(bstr_to_option);
-    let localized_control_type = unsafe { element.CurrentLocalizedControlType().ok() }
-        .and_then(bstr_to_option);
+    let localized_control_type =
+        unsafe { element.CurrentLocalizedControlType().ok() }.and_then(bstr_to_option);
     let control_type = unsafe { element.CurrentControlType().ok() }.map(|value| value.0);
     let enabled = unsafe { element.CurrentIsEnabled().ok() }.map(|value| value.as_bool());
     let rect = unsafe { element.CurrentBoundingRectangle().ok() }.and_then(rect_to_option);
