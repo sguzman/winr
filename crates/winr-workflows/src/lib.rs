@@ -44,6 +44,16 @@ pub struct WorkflowIntentDefinition {
     pub description: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowTraceEventKind {
+    ObservationAccepted,
+    TaskSelected,
+    IntentIssued,
+    RecoveryTriggered,
+    PlanBlocked,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AppPackManifest {
     pub id: String,
@@ -71,6 +81,19 @@ pub struct WorkflowPlan {
     pub intents: Vec<WorkflowIntentDefinition>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowTraceEvent {
+    pub sequence: u64,
+    pub kind: WorkflowTraceEventKind,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct WorkflowExecutionTrace {
+    #[serde(default)]
+    pub events: Vec<WorkflowTraceEvent>,
+}
+
 pub trait AppWorkflowPack {
     fn manifest(&self) -> AppPackManifest;
     fn supported_tasks(&self) -> Vec<WorkflowTaskDefinition>;
@@ -85,6 +108,17 @@ pub trait WorkflowPlanner {
 impl AppPackRegistry {
     pub fn register(&mut self, manifest: AppPackManifest) {
         self.packs.push(manifest);
+    }
+}
+
+impl WorkflowExecutionTrace {
+    pub fn push(&mut self, kind: WorkflowTraceEventKind, detail: impl Into<String>) {
+        let next_sequence = self.events.len() as u64 + 1;
+        self.events.push(WorkflowTraceEvent {
+            sequence: next_sequence,
+            kind,
+            detail: detail.into(),
+        });
     }
 }
 
@@ -144,5 +178,22 @@ mod tests {
         registry.register(RobloxPack.manifest());
         assert_eq!(registry.packs.len(), 1);
         assert_eq!(registry.packs[0].id, "roblox");
+    }
+
+    #[test]
+    fn workflow_trace_orders_events() {
+        let mut trace = WorkflowExecutionTrace::default();
+        trace.push(
+            WorkflowTraceEventKind::ObservationAccepted,
+            "accepted a render-backed observation",
+        );
+        trace.push(
+            WorkflowTraceEventKind::IntentIssued,
+            "issued approach intent",
+        );
+
+        assert_eq!(trace.events.len(), 2);
+        assert_eq!(trace.events[0].sequence, 1);
+        assert_eq!(trace.events[1].sequence, 2);
     }
 }

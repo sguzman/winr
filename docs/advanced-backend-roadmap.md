@@ -32,12 +32,14 @@ See `docs/advanced-backend-architecture.md` for the current crate layout and `pa
 
 ## Core Principles
 
-- [ ] Separate rendering, state-reading, and input into different subsystems
-- [ ] Prefer capability detection over app-specific assumptions
-- [ ] Represent automation in terms of intents and observations, not only raw key and mouse events
-- [ ] Keep app-specific behavior in adapters or packs instead of in the generic engine
-- [ ] Treat every low-level hook as fragile and replaceable
-- [ ] Build for traceability so behavior can be debugged after the fact
+- [x] Separate rendering, state-reading, and input into different subsystems
+- [x] Prefer capability detection over app-specific assumptions
+- [x] Represent automation in terms of intents and observations, not only raw key and mouse events
+- [x] Keep app-specific behavior in adapters or packs instead of in the generic engine
+- [x] Treat every low-level hook as fragile and replaceable
+- [x] Build for traceability so behavior can be debugged after the fact
+
+See `docs/advanced-backend-principles.md` for the concrete mapping from principles to code.
 
 ## Capability Model
 

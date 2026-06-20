@@ -3,17 +3,18 @@ mod discovery;
 use tracing::{debug, instrument};
 use winr_types::{
     AdvancedAgentEvent, AdvancedAgentEventEnvelope, AdvancedBackendCapabilities,
-    AdvancedBackendError, AdvancedBackendErrorKind, AdvancedBackendHello,
-    AdvancedBackendLifecycleState, AdvancedBackendOptInMode, AdvancedBackendSelection,
-    AdvancedBackendSelectionReason, AdvancedFrontend, AdvancedHostCommand,
-    AdvancedHostCommandEnvelope, AdvancedProfileBackend, AdvancedProfileExecutionPlan,
-    AdvancedSequenceNumber, AdvancedSessionId, ProfileConfig, WindowSelector, WinrError,
-    WinrResult,
+    AdvancedBackendDescriptor, AdvancedBackendError, AdvancedBackendErrorKind,
+    AdvancedBackendHello, AdvancedBackendLifecycleState, AdvancedBackendOptInMode,
+    AdvancedBackendSelection, AdvancedBackendSelectionReason, AdvancedBackendStability,
+    AdvancedFrontend, AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedProfileBackend,
+    AdvancedProfileExecutionPlan, AdvancedSequenceNumber, AdvancedSessionId, ProfileConfig,
+    WindowSelector, WinrError, WinrResult,
 };
 
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 
 pub trait AdvancedObservationBackend {
+    fn descriptor(&self) -> AdvancedBackendDescriptor;
     fn discover_targets(
         &self,
         selector: &WindowSelector,
@@ -21,6 +22,7 @@ pub trait AdvancedObservationBackend {
 }
 
 pub trait AdvancedInputBackend {
+    fn descriptor(&self) -> AdvancedBackendDescriptor;
     fn prepare_session(&self, profile: &ProfileConfig) -> WinrResult<AdvancedBackendSession>;
 }
 
@@ -299,6 +301,10 @@ impl AdvancedBackendSession {
 }
 
 impl AdvancedObservationBackend for StubAdvancedBackend {
+    fn descriptor(&self) -> AdvancedBackendDescriptor {
+        stub_backend_descriptor()
+    }
+
     fn discover_targets(
         &self,
         selector: &WindowSelector,
@@ -308,6 +314,10 @@ impl AdvancedObservationBackend for StubAdvancedBackend {
 }
 
 impl AdvancedInputBackend for StubAdvancedBackend {
+    fn descriptor(&self) -> AdvancedBackendDescriptor {
+        stub_backend_descriptor()
+    }
+
     fn prepare_session(&self, profile: &ProfileConfig) -> WinrResult<AdvancedBackendSession> {
         prepare_profile_backend(profile)
     }
@@ -352,6 +362,21 @@ fn advanced_error(
             serde_json::to_string(&payload)
                 .unwrap_or_else(|_| "{\"kind\":\"unknown\"}".to_string())
         ),
+    }
+}
+
+pub fn stub_backend_descriptor() -> AdvancedBackendDescriptor {
+    AdvancedBackendDescriptor {
+        backend: AdvancedProfileBackend::Inject,
+        stability: AdvancedBackendStability::Fragile,
+        capabilities: AdvancedBackendCapabilities::default(),
+        replaceable: true,
+        app_pack_specific: false,
+        notes: vec![
+            "advanced backends are selected by capabilities instead of app-specific assumptions"
+                .to_string(),
+            "low-level attach and injection implementations are treated as replaceable".to_string(),
+        ],
     }
 }
 
@@ -415,6 +440,14 @@ stop_on_focus_loss = true
                 WinrError::WindowNotFound | WinrError::Unsupported { .. }
             )),
         }
+    }
+
+    #[test]
+    fn stub_backend_descriptor_is_fragile_and_replaceable() {
+        let descriptor = stub_backend_descriptor();
+        assert_eq!(descriptor.backend, AdvancedProfileBackend::Inject);
+        assert_eq!(descriptor.stability, AdvancedBackendStability::Fragile);
+        assert!(descriptor.replaceable);
     }
 
     #[test]

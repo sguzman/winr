@@ -224,6 +224,14 @@ pub enum AdvancedBackendOptInMode {
     AutoDetectFromProfile,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedBackendStability {
+    Stable,
+    Experimental,
+    Fragile,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct AdvancedSessionId(pub u64);
 
@@ -385,6 +393,16 @@ pub struct AdvancedBackendCapabilities {
     pub entity_tracking: bool,
     #[serde(default)]
     pub internal_interaction: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedBackendDescriptor {
+    pub backend: AdvancedProfileBackend,
+    pub stability: AdvancedBackendStability,
+    pub capabilities: AdvancedBackendCapabilities,
+    pub replaceable: bool,
+    pub app_pack_specific: bool,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
