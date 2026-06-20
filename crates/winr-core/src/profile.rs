@@ -12,9 +12,9 @@ use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winr_inject::{prepare_profile_backend, resolve_backend_selection};
 use winr_types::{
-    AdvancedProfileBackend, MouseInputMode, ProfileAction, ProfileClickPoint, ProfileConfig,
-    ProfileDetector, ProfileMouseButton, ProfileRunResult, WindowInfo, WindowSelector, WinrError,
-    WinrResult,
+    AdvancedFrontend, AdvancedProfileBackend, MouseInputMode, ProfileAction, ProfileClickPoint,
+    ProfileConfig, ProfileDetector, ProfileMouseButton, ProfileRunResult, WindowInfo,
+    WindowSelector, WinrError, WinrResult,
 };
 
 use crate::{
@@ -81,7 +81,7 @@ where
 {
     validate_profile(profile)?;
     let prepared_detector = prepare_detector(profile.detector.as_ref())?;
-    let backend_selection = resolve_backend_selection(profile);
+    let backend_selection = resolve_backend_selection(profile, AdvancedFrontend::Cli);
     let backend_used = backend_selection.resolved;
 
     info!(

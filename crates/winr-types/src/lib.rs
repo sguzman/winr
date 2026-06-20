@@ -202,6 +202,28 @@ impl AdvancedProfileBackend {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedFrontend {
+    Cli,
+    Mcp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedBackendSelectionReason {
+    ExplicitProfileBackend,
+    AutoFromMouseMessageAction,
+    AutoDefaultForeground,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedBackendOptInMode {
+    ExplicitProfileOnly,
+    AutoDetectFromProfile,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct AdvancedSessionId(pub u64);
 
@@ -367,8 +389,12 @@ pub struct AdvancedBackendCapabilities {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AdvancedBackendSelection {
+    pub frontend: AdvancedFrontend,
     pub requested: AdvancedProfileBackend,
     pub resolved: AdvancedProfileBackend,
+    pub reason: AdvancedBackendSelectionReason,
+    pub opt_in_mode: AdvancedBackendOptInMode,
+    pub advanced_backend_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -378,6 +404,28 @@ pub struct AdvancedBackendHello {
     pub lifecycle_state: AdvancedBackendLifecycleState,
     pub capabilities: AdvancedBackendCapabilities,
     pub target: AdvancedTargetRef,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedBackendErrorKind {
+    DiscoveryFailed,
+    NoAttachableTarget,
+    AmbiguousAttachableTarget,
+    SessionMismatch,
+    SequenceOutOfOrder,
+    InvalidStateTransition,
+    HandshakeMismatch,
+    AttachNotImplemented,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedBackendError {
+    pub kind: AdvancedBackendErrorKind,
+    pub backend: AdvancedProfileBackend,
+    pub detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_state: Option<AdvancedBackendLifecycleState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

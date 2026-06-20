@@ -45,14 +45,16 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 
 ## Phase 0: Contracts And Boundaries
 
-- [ ] Define backend traits for observation, input, and workflow execution
+- [x] Define backend traits for observation, input, and workflow execution
 - [x] Define a shared target identity model that ties together HWND, PID, executable name, and backend attachment
 - [x] Define explicit lifecycle states such as discovered, attachable, attached, degraded, and detached
-- [ ] Define structured error families for advanced backend failures
+- [x] Define structured error families for advanced backend failures
 - [x] Define capability negotiation for backend selection
-- [ ] Decide which APIs stay in `winr-core` versus moving to a new crate
-- [ ] Decide how CLI and MCP choose between ordinary and advanced backends
-- [ ] Decide whether advanced backend support is opt-in per profile, per target, or auto-detected
+- [x] Decide which APIs stay in `winr-core` versus moving to a new crate
+- [x] Decide how CLI and MCP choose between ordinary and advanced backends
+- [x] Decide whether advanced backend support is opt-in per profile, per target, or auto-detected
+
+See `docs/advanced-backend-phase0-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 1: Process Discovery And Attachment
 

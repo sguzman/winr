@@ -3,13 +3,33 @@ mod discovery;
 use tracing::{debug, instrument};
 use winr_types::{
     AdvancedAgentEvent, AdvancedAgentEventEnvelope, AdvancedBackendCapabilities,
-    AdvancedBackendHello, AdvancedBackendLifecycleState, AdvancedBackendSelection,
-    AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedProfileBackend,
-    AdvancedProfileExecutionPlan, AdvancedSequenceNumber, AdvancedSessionId, ProfileConfig,
-    WindowSelector, WinrError, WinrResult,
+    AdvancedBackendError, AdvancedBackendErrorKind, AdvancedBackendHello,
+    AdvancedBackendLifecycleState, AdvancedBackendOptInMode, AdvancedBackendSelection,
+    AdvancedBackendSelectionReason, AdvancedFrontend, AdvancedHostCommand,
+    AdvancedHostCommandEnvelope, AdvancedProfileBackend, AdvancedProfileExecutionPlan,
+    AdvancedSequenceNumber, AdvancedSessionId, ProfileConfig, WindowSelector, WinrError,
+    WinrResult,
 };
 
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
+
+pub trait AdvancedObservationBackend {
+    fn discover_targets(
+        &self,
+        selector: &WindowSelector,
+    ) -> WinrResult<winr_types::AdvancedTargetDiscovery>;
+}
+
+pub trait AdvancedInputBackend {
+    fn prepare_session(&self, profile: &ProfileConfig) -> WinrResult<AdvancedBackendSession>;
+}
+
+pub trait AdvancedWorkflowBackend: AdvancedObservationBackend + AdvancedInputBackend {
+    fn build_execution_plan(&self, profile: &ProfileConfig) -> AdvancedProfileExecutionPlan;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct StubAdvancedBackend;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdvancedBackendSession {
@@ -27,18 +47,41 @@ pub fn prepare_profile_backend(profile: &ProfileConfig) -> WinrResult<AdvancedBa
         "preparing advanced backend session"
     );
 
-    let selection = resolve_backend_selection(profile);
+    let selection = resolve_backend_selection(profile, AdvancedFrontend::Cli);
     if selection.resolved != AdvancedProfileBackend::Inject {
-        return Err(WinrError::Unsupported {
-            message: format!(
+        return Err(advanced_error(
+            AdvancedBackendErrorKind::AttachNotImplemented,
+            selection.resolved,
+            format!(
                 "advanced backend preparation is only valid for resolved backend '{}'",
                 AdvancedProfileBackend::Inject.as_str()
             ),
-        });
+            None,
+        ));
     }
 
-    let discovery = discover_profile_targets(profile)?;
-    let candidate = resolve_attachable_target(&discovery)?;
+    let discovery = discover_profile_targets(profile).map_err(|error| {
+        advanced_error(
+            AdvancedBackendErrorKind::DiscoveryFailed,
+            AdvancedProfileBackend::Inject,
+            error.to_string(),
+            None,
+        )
+    })?;
+    let candidate = resolve_attachable_target(&discovery).map_err(|error| match error {
+        WinrError::WindowNotFound => advanced_error(
+            AdvancedBackendErrorKind::NoAttachableTarget,
+            AdvancedProfileBackend::Inject,
+            "no attachable targets matched the advanced backend selector".to_string(),
+            None,
+        ),
+        other => advanced_error(
+            AdvancedBackendErrorKind::AmbiguousAttachableTarget,
+            AdvancedProfileBackend::Inject,
+            other.to_string(),
+            None,
+        ),
+    })?;
     let mut hello = stub_hello(profile);
     hello.lifecycle_state = candidate.lifecycle_state;
     hello.target = candidate.target;
@@ -46,15 +89,26 @@ pub fn prepare_profile_backend(profile: &ProfileConfig) -> WinrResult<AdvancedBa
     Ok(AdvancedBackendSession::new(AdvancedSessionId(1), hello))
 }
 
-pub fn resolve_backend_selection(profile: &ProfileConfig) -> AdvancedBackendSelection {
+pub fn resolve_backend_selection(
+    profile: &ProfileConfig,
+    frontend: AdvancedFrontend,
+) -> AdvancedBackendSelection {
     match profile.execution.backend {
         AdvancedProfileBackend::Auto => AdvancedBackendSelection {
+            frontend,
             requested: AdvancedProfileBackend::Auto,
             resolved: inferred_backend(profile),
+            reason: inferred_reason(profile),
+            opt_in_mode: AdvancedBackendOptInMode::AutoDetectFromProfile,
+            advanced_backend_requested: false,
         },
         backend => AdvancedBackendSelection {
+            frontend,
             requested: backend,
             resolved: backend,
+            reason: AdvancedBackendSelectionReason::ExplicitProfileBackend,
+            opt_in_mode: AdvancedBackendOptInMode::ExplicitProfileOnly,
+            advanced_backend_requested: backend == AdvancedProfileBackend::Inject,
         },
     }
 }
@@ -66,6 +120,16 @@ fn inferred_backend(profile: &ProfileConfig) -> AdvancedProfileBackend {
             ..
         } => AdvancedProfileBackend::Message,
         _ => AdvancedProfileBackend::Foreground,
+    }
+}
+
+fn inferred_reason(profile: &ProfileConfig) -> AdvancedBackendSelectionReason {
+    match profile.action {
+        winr_types::ProfileAction::MouseClick {
+            input_mode: Some(winr_types::MouseInputMode::Message),
+            ..
+        } => AdvancedBackendSelectionReason::AutoFromMouseMessageAction,
+        _ => AdvancedBackendSelectionReason::AutoDefaultForeground,
     }
 }
 
@@ -86,7 +150,7 @@ pub fn stub_hello(profile: &ProfileConfig) -> AdvancedBackendHello {
 }
 
 pub fn build_execution_plan(profile: &ProfileConfig) -> AdvancedProfileExecutionPlan {
-    let selection = resolve_backend_selection(profile);
+    let selection = resolve_backend_selection(profile, AdvancedFrontend::Cli);
     AdvancedProfileExecutionPlan {
         profile_id: profile.profile.id.clone(),
         backend: selection.resolved,
@@ -151,35 +215,44 @@ impl AdvancedBackendSession {
 
     pub fn apply_event(&mut self, envelope: &AdvancedAgentEventEnvelope) -> WinrResult<()> {
         if envelope.session_id != self.session_id {
-            return Err(WinrError::Unsupported {
-                message: format!(
+            return Err(advanced_error(
+                AdvancedBackendErrorKind::SessionMismatch,
+                self.hello.backend,
+                format!(
                     "advanced backend session mismatch: expected {}, got {}",
                     self.session_id.0, envelope.session_id.0
                 ),
-            });
+                Some(self.hello.lifecycle_state),
+            ));
         }
 
         if let Some(last) = self.last_agent_sequence
             && envelope.sequence.0 <= last.0
         {
-            return Err(WinrError::Unsupported {
-                message: format!(
+            return Err(advanced_error(
+                AdvancedBackendErrorKind::SequenceOutOfOrder,
+                self.hello.backend,
+                format!(
                     "advanced backend event sequence must increase: last={} next={}",
                     last.0, envelope.sequence.0
                 ),
-            });
+                Some(self.hello.lifecycle_state),
+            ));
         }
 
         match &envelope.event {
             AdvancedAgentEvent::Hello { hello } => {
                 if hello.backend != self.hello.backend {
-                    return Err(WinrError::Unsupported {
-                        message: format!(
+                    return Err(advanced_error(
+                        AdvancedBackendErrorKind::HandshakeMismatch,
+                        self.hello.backend,
+                        format!(
                             "advanced backend hello mismatch: expected '{}', got '{}'",
                             self.hello.backend.as_str(),
                             hello.backend.as_str()
                         ),
-                    });
+                        Some(self.hello.lifecycle_state),
+                    ));
                 }
                 self.transition_to(hello.lifecycle_state)?;
                 self.hello.capabilities = hello.capabilities.clone();
@@ -209,16 +282,40 @@ impl AdvancedBackendSession {
     fn transition_to(&mut self, next: AdvancedBackendLifecycleState) -> WinrResult<()> {
         let current = self.hello.lifecycle_state;
         if !current.can_transition_to(next) {
-            return Err(WinrError::Unsupported {
-                message: format!(
+            return Err(advanced_error(
+                AdvancedBackendErrorKind::InvalidStateTransition,
+                self.hello.backend,
+                format!(
                     "invalid advanced backend state transition: {} -> {}",
                     lifecycle_name(current),
                     lifecycle_name(next)
                 ),
-            });
+                Some(current),
+            ));
         }
         self.hello.lifecycle_state = next;
         Ok(())
+    }
+}
+
+impl AdvancedObservationBackend for StubAdvancedBackend {
+    fn discover_targets(
+        &self,
+        selector: &WindowSelector,
+    ) -> WinrResult<winr_types::AdvancedTargetDiscovery> {
+        discover_attachable_targets(selector)
+    }
+}
+
+impl AdvancedInputBackend for StubAdvancedBackend {
+    fn prepare_session(&self, profile: &ProfileConfig) -> WinrResult<AdvancedBackendSession> {
+        prepare_profile_backend(profile)
+    }
+}
+
+impl AdvancedWorkflowBackend for StubAdvancedBackend {
+    fn build_execution_plan(&self, profile: &ProfileConfig) -> AdvancedProfileExecutionPlan {
+        build_execution_plan(profile)
     }
 }
 
@@ -233,6 +330,28 @@ fn lifecycle_name(state: AdvancedBackendLifecycleState) -> &'static str {
         AdvancedBackendLifecycleState::Attached => "attached",
         AdvancedBackendLifecycleState::Degraded => "degraded",
         AdvancedBackendLifecycleState::Detached => "detached",
+    }
+}
+
+fn advanced_error(
+    kind: AdvancedBackendErrorKind,
+    backend: AdvancedProfileBackend,
+    detail: String,
+    lifecycle_state: Option<AdvancedBackendLifecycleState>,
+) -> WinrError {
+    let payload = AdvancedBackendError {
+        kind,
+        backend,
+        detail,
+        lifecycle_state,
+    };
+
+    WinrError::Unsupported {
+        message: format!(
+            "advanced backend error: {}",
+            serde_json::to_string(&payload)
+                .unwrap_or_else(|_| "{\"kind\":\"unknown\"}".to_string())
+        ),
     }
 }
 
@@ -279,7 +398,7 @@ stop_on_focus_loss = true
     #[test]
     fn auto_backend_defaults_to_foreground() {
         let profile = sample_profile();
-        let selection = resolve_backend_selection(&profile);
+        let selection = resolve_backend_selection(&profile, AdvancedFrontend::Cli);
         assert_eq!(selection.requested, AdvancedProfileBackend::Auto);
         assert_eq!(selection.resolved, AdvancedProfileBackend::Foreground);
     }
