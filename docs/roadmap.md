@@ -61,3 +61,10 @@
 - [x] Add screenshot and input validation coverage
 - [x] Document future safety policy and permission workflows in more depth
 - [x] Add a first-pass TOML profile runner for repeated mouse-click automation
+
+## Future planning
+
+- [ ] Design an advanced backend for injected observation, richer state, and workflow-driven navigation
+- [ ] Turn higher-level movement and object-interaction goals into first-class workflows
+
+See `docs/advanced-backend-roadmap.md` for the long-form planning document.
