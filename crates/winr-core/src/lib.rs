@@ -93,6 +93,17 @@ pub fn foreground_window() -> WinrResult<WindowInfo> {
 
 #[instrument(skip(selector))]
 pub fn window_info(selector: &WindowSelector) -> WinrResult<WindowInfo> {
+    if let Some(hwnd) = selector
+        .hwnd
+        .as_ref()
+        .filter(|_| selector.pid.is_none())
+        .filter(|_| selector.title_contains.is_none())
+        .filter(|_| selector.class_name.is_none())
+        .filter(|_| selector.exe.is_none())
+    {
+        return build_window_info(parse_selector_hwnd(hwnd));
+    }
+
     let windows = enumerate_windows()?;
     resolve_window_from_list(&windows, selector)
 }
