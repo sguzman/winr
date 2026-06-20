@@ -138,6 +138,7 @@ Profiles:
 ```powershell
 winr profile run profile/general-roblox-auto-clicker.toml
 winr profile run profile/general-roblox-auto-clicker-background-experimental.toml
+winr profile run profile/general-roblox-auto-clicker-inject-experimental.toml
 winr profile run profile/general-roblox-auto-clicker.toml --focus-target
 winr profile run profile/general-roblox-auto-clicker.toml --focus-target --arm-delay-ms 1500
 winr profile run profile/general-roblox-auto-clicker.toml --max-clicks 100
@@ -151,6 +152,8 @@ For foreground-only clicker profiles, `--focus-target` is the easiest way to sta
 If you want to use your PC while a foreground-only profile is armed, set `pause_on_focus_loss = true` and `stop_on_focus_loss = false` in the profile. That makes the click loop pause whenever Roblox loses focus and resume automatically once Roblox is foreground again.
 
 For apps that may tolerate background mouse messages, `mouse click-window` also supports `--input-mode message`, and profiles can set `input_mode = "message"` under `[action]`. This is experimental and app-dependent. It may work for some classic windows and may fail completely for Roblox.
+
+Profiles can now also declare an `[execution]` section with `backend = "auto"`, `foreground`, `message`, or `inject`. The `inject` backend is scaffolded for future work and currently returns a deliberate unsupported error instead of pretending injection exists already.
 
 Mouse-click profiles now click a stable client-area point inside the target window instead of blindly clicking wherever the cursor happens to be. If the profile does not specify `x` and `y`, `winr` will try to capture the current cursor position inside the target window and otherwise fall back to the window center.
 

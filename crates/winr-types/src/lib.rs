@@ -149,6 +149,8 @@ impl MouseInputMode {
 pub struct ProfileConfig {
     pub profile: ProfileMetadata,
     pub target: WindowSelector,
+    #[serde(default)]
+    pub execution: ProfileExecution,
     pub action: ProfileAction,
     #[serde(default)]
     pub detector: Option<ProfileDetector>,
@@ -163,6 +165,41 @@ pub struct ProfileMetadata {
     pub name: String,
     pub description: String,
     pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileExecution {
+    #[serde(default)]
+    pub backend: AdvancedProfileBackend,
+}
+
+impl Default for ProfileExecution {
+    fn default() -> Self {
+        Self {
+            backend: AdvancedProfileBackend::Auto,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedProfileBackend {
+    #[default]
+    Auto,
+    Foreground,
+    Message,
+    Inject,
+}
+
+impl AdvancedProfileBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Foreground => "foreground",
+            Self::Message => "message",
+            Self::Inject => "inject",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -255,7 +292,101 @@ pub struct ProfileRunResult {
     pub profile_id: String,
     pub profile_name: String,
     pub clicks_fired: u64,
+    pub backend_used: AdvancedProfileBackend,
     pub target_window: WindowInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedTargetRef {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hwnd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exe: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedBackendLifecycleState {
+    Discovered,
+    Attachable,
+    Attached,
+    Degraded,
+    Detached,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct AdvancedBackendCapabilities {
+    #[serde(default)]
+    pub foreground_input: bool,
+    #[serde(default)]
+    pub message_input: bool,
+    #[serde(default)]
+    pub uia_input: bool,
+    #[serde(default)]
+    pub injected_input: bool,
+    #[serde(default)]
+    pub render_observation: bool,
+    #[serde(default)]
+    pub memory_observation: bool,
+    #[serde(default)]
+    pub semantic_navigation: bool,
+    #[serde(default)]
+    pub entity_tracking: bool,
+    #[serde(default)]
+    pub internal_interaction: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedBackendSelection {
+    pub requested: AdvancedProfileBackend,
+    pub resolved: AdvancedProfileBackend,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedBackendHello {
+    pub protocol_version: u32,
+    pub backend: AdvancedProfileBackend,
+    pub lifecycle_state: AdvancedBackendLifecycleState,
+    pub capabilities: AdvancedBackendCapabilities,
+    pub target: AdvancedTargetRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AdvancedHostCommand {
+    Handshake {
+        requested_backend: AdvancedProfileBackend,
+        target: AdvancedTargetRef,
+    },
+    StartProfile {
+        profile_id: String,
+    },
+    StopProfile {
+        profile_id: String,
+    },
+    Ping,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AdvancedAgentEvent {
+    Hello {
+        hello: AdvancedBackendHello,
+    },
+    Status {
+        state: AdvancedBackendLifecycleState,
+        detail: String,
+    },
+    ObservationTick {
+        frame_id: u64,
+        detail: String,
+    },
 }
 
 const fn default_sample_stride() -> u32 {

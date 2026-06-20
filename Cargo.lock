@@ -1329,6 +1329,18 @@ dependencies = [
  "toml",
  "tracing",
  "windows",
+ "winr-inject",
+ "winr-types",
+]
+
+[[package]]
+name = "winr-inject"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+ "tracing",
  "winr-types",
 ]
 

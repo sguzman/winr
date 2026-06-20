@@ -1,0 +1,41 @@
+# winr profile: Roblox injected backend placeholder
+# Intended use:
+# - reserve a future profile shape for injected automation
+# - fail fast today until the advanced backend is implemented
+
+[profile]
+id = "general-roblox-auto-clicker-inject-experimental"
+name = "General Roblox Auto Clicker Inject Experimental"
+description = "Placeholder profile for the future injected Roblox backend."
+version = "1"
+
+[target]
+title_contains = "Roblox"
+exe = "RobloxPlayerBeta.exe"
+class_name = "WINDOWSCLIENT"
+
+[execution]
+backend = "inject"
+
+[action]
+kind = "mouse_click"
+button = "left"
+click_point = "center"
+
+[schedule]
+mode = "interval"
+every_ms = 50
+random_delta_ms = 20
+run_until_stopped = true
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "autoclicks fired: {count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = false
+stop_on_focus_loss = false
+pause_on_focus_loss = false

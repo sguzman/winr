@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/winr-types",
+    "crates/winr-inject",
     "crates/winr-core",
     "crates/winr-cli",
     "crates/winr-mcp",

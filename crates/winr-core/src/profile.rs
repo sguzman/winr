@@ -10,9 +10,11 @@ use tracing::{debug, info, instrument, trace, warn};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use winr_inject::{prepare_profile_backend, resolve_backend_selection};
 use winr_types::{
-    MouseInputMode, ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector,
-    ProfileMouseButton, ProfileRunResult, WindowInfo, WindowSelector, WinrError, WinrResult,
+    AdvancedProfileBackend, MouseInputMode, ProfileAction, ProfileClickPoint, ProfileConfig,
+    ProfileDetector, ProfileMouseButton, ProfileRunResult, WindowInfo, WindowSelector, WinrError,
+    WinrResult,
 };
 
 use crate::{
@@ -79,6 +81,19 @@ where
 {
     validate_profile(profile)?;
     let prepared_detector = prepare_detector(profile.detector.as_ref())?;
+    let backend_selection = resolve_backend_selection(profile);
+    let backend_used = backend_selection.resolved;
+
+    info!(
+        requested_backend = backend_selection.requested.as_str(),
+        resolved_backend = backend_used.as_str(),
+        profile_id = %profile.profile.id,
+        "resolved profile backend selection"
+    );
+
+    if backend_used == AdvancedProfileBackend::Inject {
+        let _ = prepare_profile_backend(profile)?;
+    }
 
     let started_at = Instant::now();
     let selector = profile.target.clone();
@@ -271,6 +286,7 @@ where
         profile_id: profile.profile.id.clone(),
         profile_name: profile.profile.name.clone(),
         clicks_fired: fired,
+        backend_used,
         target_window: target,
     })
 }
@@ -916,6 +932,7 @@ pause_on_focus_loss = false
     fn parses_profile_toml() {
         let profile = sample_profile();
         assert_eq!(profile.profile.id, "demo");
+        assert_eq!(profile.execution.backend, AdvancedProfileBackend::Auto);
         assert_eq!(profile.schedule.every_ms, 50);
         assert!(profile.safety.require_foreground_window);
         match profile.detector.as_ref().expect("detector should exist") {

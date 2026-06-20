@@ -903,6 +903,7 @@ impl HumanOutput for ProfileRunResult {
         writeln!(writer, "profile_id: {}", self.profile_id).map_err(io_error)?;
         writeln!(writer, "profile_name: {}", self.profile_name).map_err(io_error)?;
         writeln!(writer, "clicks_fired: {}", self.clicks_fired).map_err(io_error)?;
+        writeln!(writer, "backend_used: {}", self.backend_used.as_str()).map_err(io_error)?;
         self.target_window.write_human(writer)
     }
 }
