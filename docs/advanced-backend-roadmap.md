@@ -43,9 +43,11 @@ See `docs/advanced-backend-principles.md` for the concrete mapping from principl
 
 ## Capability Model
 
-- [ ] Define an explicit capability model instead of pretending all targets behave the same
-- [ ] Support capability flags such as `foreground_input`, `message_input`, `uia_input`, `injected_input`, `render_observation`, `memory_observation`, `semantic_navigation`, `entity_tracking`, and `internal_interaction`
-- [ ] Make backends advertise supported capabilities so workflows can choose the strongest available path
+- [x] Define an explicit capability model instead of pretending all targets behave the same
+- [x] Support capability flags such as `foreground_input`, `message_input`, `uia_input`, `injected_input`, `render_observation`, `memory_observation`, `semantic_navigation`, `entity_tracking`, and `internal_interaction`
+- [x] Make backends advertise supported capabilities so workflows can choose the strongest available path
+
+See `docs/advanced-backend-capability-model.md` for the current capability vocabulary, descriptor format, and selection rules.
 
 ## Phase 0: Contracts And Boundaries
 

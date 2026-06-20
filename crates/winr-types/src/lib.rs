@@ -395,6 +395,42 @@ pub struct AdvancedBackendCapabilities {
     pub internal_interaction: bool,
 }
 
+impl AdvancedBackendCapabilities {
+    pub fn supports(&self, requirements: &AdvancedCapabilityRequirements) -> bool {
+        (!requirements.foreground_input || self.foreground_input)
+            && (!requirements.message_input || self.message_input)
+            && (!requirements.uia_input || self.uia_input)
+            && (!requirements.injected_input || self.injected_input)
+            && (!requirements.render_observation || self.render_observation)
+            && (!requirements.memory_observation || self.memory_observation)
+            && (!requirements.semantic_navigation || self.semantic_navigation)
+            && (!requirements.entity_tracking || self.entity_tracking)
+            && (!requirements.internal_interaction || self.internal_interaction)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct AdvancedCapabilityRequirements {
+    #[serde(default)]
+    pub foreground_input: bool,
+    #[serde(default)]
+    pub message_input: bool,
+    #[serde(default)]
+    pub uia_input: bool,
+    #[serde(default)]
+    pub injected_input: bool,
+    #[serde(default)]
+    pub render_observation: bool,
+    #[serde(default)]
+    pub memory_observation: bool,
+    #[serde(default)]
+    pub semantic_navigation: bool,
+    #[serde(default)]
+    pub entity_tracking: bool,
+    #[serde(default)]
+    pub internal_interaction: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AdvancedBackendDescriptor {
     pub backend: AdvancedProfileBackend,
@@ -403,6 +439,27 @@ pub struct AdvancedBackendDescriptor {
     pub replaceable: bool,
     pub app_pack_specific: bool,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedCapabilityMatch {
+    pub backend: AdvancedProfileBackend,
+    pub satisfies_requirements: bool,
+    pub score: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedCapabilityCatalog {
+    pub frontends: Vec<AdvancedFrontend>,
+    pub backends: Vec<AdvancedBackendDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedCapabilitySelection {
+    pub requirements: AdvancedCapabilityRequirements,
+    pub matches: Vec<AdvancedCapabilityMatch>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_backend: Option<AdvancedProfileBackend>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

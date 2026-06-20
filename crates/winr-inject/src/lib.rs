@@ -6,9 +6,11 @@ use winr_types::{
     AdvancedBackendDescriptor, AdvancedBackendError, AdvancedBackendErrorKind,
     AdvancedBackendHello, AdvancedBackendLifecycleState, AdvancedBackendOptInMode,
     AdvancedBackendSelection, AdvancedBackendSelectionReason, AdvancedBackendStability,
-    AdvancedFrontend, AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedProfileBackend,
-    AdvancedProfileExecutionPlan, AdvancedSequenceNumber, AdvancedSessionId, ProfileConfig,
-    WindowSelector, WinrError, WinrResult,
+    AdvancedCapabilityCatalog, AdvancedCapabilityMatch, AdvancedCapabilityRequirements,
+    AdvancedCapabilitySelection, AdvancedFrontend, AdvancedHostCommand,
+    AdvancedHostCommandEnvelope, AdvancedProfileBackend, AdvancedProfileExecutionPlan,
+    AdvancedSequenceNumber, AdvancedSessionId, MouseInputMode, ProfileConfig, WindowSelector,
+    WinrError, WinrResult,
 };
 
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
@@ -115,20 +117,79 @@ pub fn resolve_backend_selection(
     }
 }
 
-fn inferred_backend(profile: &ProfileConfig) -> AdvancedProfileBackend {
-    match profile.action {
-        winr_types::ProfileAction::MouseClick {
-            input_mode: Some(winr_types::MouseInputMode::Message),
-            ..
-        } => AdvancedProfileBackend::Message,
-        _ => AdvancedProfileBackend::Foreground,
+pub fn catalog_for_frontend(frontend: AdvancedFrontend) -> AdvancedCapabilityCatalog {
+    AdvancedCapabilityCatalog {
+        frontends: vec![frontend],
+        backends: vec![
+            foreground_backend_descriptor(),
+            message_backend_descriptor(),
+            stub_backend_descriptor(),
+        ],
     }
+}
+
+pub fn capability_requirements_for_profile(
+    profile: &ProfileConfig,
+) -> AdvancedCapabilityRequirements {
+    match profile.action {
+        winr_types::ProfileAction::MouseClick { input_mode, .. } => match input_mode {
+            Some(MouseInputMode::Message) => AdvancedCapabilityRequirements {
+                message_input: true,
+                ..Default::default()
+            },
+            None | Some(MouseInputMode::Foreground) => AdvancedCapabilityRequirements {
+                foreground_input: true,
+                ..Default::default()
+            },
+        },
+    }
+}
+
+pub fn select_backend_by_capabilities(
+    catalog: &AdvancedCapabilityCatalog,
+    requirements: &AdvancedCapabilityRequirements,
+) -> AdvancedCapabilitySelection {
+    let mut matches = catalog
+        .backends
+        .iter()
+        .map(|descriptor| AdvancedCapabilityMatch {
+            backend: descriptor.backend,
+            satisfies_requirements: descriptor.capabilities.supports(requirements),
+            score: capability_score(&descriptor.capabilities, requirements),
+        })
+        .collect::<Vec<_>>();
+
+    matches.sort_by(|left, right| {
+        right
+            .satisfies_requirements
+            .cmp(&left.satisfies_requirements)
+            .then_with(|| right.score.cmp(&left.score))
+    });
+
+    let selected_backend = matches
+        .iter()
+        .find(|entry| entry.satisfies_requirements)
+        .map(|entry| entry.backend);
+
+    AdvancedCapabilitySelection {
+        requirements: requirements.clone(),
+        matches,
+        selected_backend,
+    }
+}
+
+fn inferred_backend(profile: &ProfileConfig) -> AdvancedProfileBackend {
+    let requirements = capability_requirements_for_profile(profile);
+    let catalog = catalog_for_frontend(AdvancedFrontend::Cli);
+    select_backend_by_capabilities(&catalog, &requirements)
+        .selected_backend
+        .unwrap_or(AdvancedProfileBackend::Foreground)
 }
 
 fn inferred_reason(profile: &ProfileConfig) -> AdvancedBackendSelectionReason {
     match profile.action {
         winr_types::ProfileAction::MouseClick {
-            input_mode: Some(winr_types::MouseInputMode::Message),
+            input_mode: Some(MouseInputMode::Message),
             ..
         } => AdvancedBackendSelectionReason::AutoFromMouseMessageAction,
         _ => AdvancedBackendSelectionReason::AutoDefaultForeground,
@@ -380,6 +441,69 @@ pub fn stub_backend_descriptor() -> AdvancedBackendDescriptor {
     }
 }
 
+pub fn foreground_backend_descriptor() -> AdvancedBackendDescriptor {
+    AdvancedBackendDescriptor {
+        backend: AdvancedProfileBackend::Foreground,
+        stability: AdvancedBackendStability::Stable,
+        capabilities: AdvancedBackendCapabilities {
+            foreground_input: true,
+            ..Default::default()
+        },
+        replaceable: false,
+        app_pack_specific: false,
+        notes: vec!["standard desktop foreground input backend".to_string()],
+    }
+}
+
+pub fn message_backend_descriptor() -> AdvancedBackendDescriptor {
+    AdvancedBackendDescriptor {
+        backend: AdvancedProfileBackend::Message,
+        stability: AdvancedBackendStability::Experimental,
+        capabilities: AdvancedBackendCapabilities {
+            message_input: true,
+            ..Default::default()
+        },
+        replaceable: true,
+        app_pack_specific: false,
+        notes: vec!["classic Win32-oriented background message backend".to_string()],
+    }
+}
+
+fn capability_score(
+    capabilities: &AdvancedBackendCapabilities,
+    requirements: &AdvancedCapabilityRequirements,
+) -> u32 {
+    let mut score = 0_u32;
+    if requirements.foreground_input && capabilities.foreground_input {
+        score += 1;
+    }
+    if requirements.message_input && capabilities.message_input {
+        score += 1;
+    }
+    if requirements.uia_input && capabilities.uia_input {
+        score += 1;
+    }
+    if requirements.injected_input && capabilities.injected_input {
+        score += 1;
+    }
+    if requirements.render_observation && capabilities.render_observation {
+        score += 1;
+    }
+    if requirements.memory_observation && capabilities.memory_observation {
+        score += 1;
+    }
+    if requirements.semantic_navigation && capabilities.semantic_navigation {
+        score += 1;
+    }
+    if requirements.entity_tracking && capabilities.entity_tracking {
+        score += 1;
+    }
+    if requirements.internal_interaction && capabilities.internal_interaction {
+        score += 1;
+    }
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,6 +572,29 @@ stop_on_focus_loss = true
         assert_eq!(descriptor.backend, AdvancedProfileBackend::Inject);
         assert_eq!(descriptor.stability, AdvancedBackendStability::Fragile);
         assert!(descriptor.replaceable);
+    }
+
+    #[test]
+    fn capability_selection_prefers_message_backend_when_required() {
+        let catalog = catalog_for_frontend(AdvancedFrontend::Cli);
+        let selection = select_backend_by_capabilities(
+            &catalog,
+            &AdvancedCapabilityRequirements {
+                message_input: true,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            selection.selected_backend,
+            Some(AdvancedProfileBackend::Message)
+        );
+        assert!(
+            selection
+                .matches
+                .iter()
+                .any(|entry| entry.satisfies_requirements)
+        );
     }
 
     #[test]
