@@ -16,16 +16,17 @@ use winr_core::{
     ListWindowsOptions, current_mcp_config, focus_window as core_focus_window,
     input_keys as core_input_keys, input_text as core_input_text,
     list_windows as core_list_windows, mouse_click as core_mouse_click,
-    mouse_click_window as core_mouse_click_window, move_window as core_move_window,
-    restore_window as core_restore_window, screenshot_window as core_screenshot_window,
-    uia_find as core_uia_find, uia_invoke as core_uia_invoke, uia_set_text as core_uia_set_text,
-    uia_tree as core_uia_tree, window_info as core_window_info,
+    mouse_click_window_with_mode as core_mouse_click_window_with_mode,
+    move_window as core_move_window, restore_window as core_restore_window,
+    screenshot_window as core_screenshot_window, uia_find as core_uia_find,
+    uia_invoke as core_uia_invoke, uia_set_text as core_uia_set_text, uia_tree as core_uia_tree,
+    window_info as core_window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, InputMode, ScreenshotBackend, ScreenshotResult,
-    SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest, UiaFindResponse,
-    UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo,
-    WindowSelector, WinrError,
+    ErrorResponse, InputActionResult, InputMode, MouseInputMode, ScreenshotBackend,
+    ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest,
+    UiaFindResponse, UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult,
+    WindowInfo, WindowSelector, WinrError,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -96,6 +97,8 @@ pub struct MouseClickParams {
     pub x: Option<i32>,
     #[serde(default)]
     pub y: Option<i32>,
+    #[serde(default)]
+    pub input_mode: Option<MouseInputMode>,
     #[serde(default = "default_true")]
     pub focus_first: bool,
 }
@@ -280,9 +283,14 @@ impl WinrMcpServer {
                     message: "mouse_click with a selector requires x and y coordinates".to_string(),
                 });
                 match (x, y) {
-                    (Ok(x), Ok(y)) => {
-                        core_mouse_click_window(&selector, x, y, button, params.focus_first)
-                    }
+                    (Ok(x), Ok(y)) => core_mouse_click_window_with_mode(
+                        &selector,
+                        x,
+                        y,
+                        button,
+                        params.focus_first,
+                        params.input_mode.unwrap_or(MouseInputMode::Foreground),
+                    ),
                     (Err(error), _) | (_, Err(error)) => Err(error),
                 }
             }

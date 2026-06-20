@@ -130,12 +130,14 @@ winr input keys --input-mode message --title Notepad --combo ctrl+a
 winr input text --input-mode uia --title Notepad "hello from UIA"
 winr mouse click --button left --x 100 --y 200
 winr mouse click-window --title Notepad --x 40 --y 20
+winr mouse click-window --input-mode message --title Notepad --x 40 --y 20
 ```
 
 Profiles:
 
 ```powershell
 winr profile run profile/general-roblox-auto-clicker.toml
+winr profile run profile/general-roblox-auto-clicker-background-experimental.toml
 winr profile run profile/general-roblox-auto-clicker.toml --focus-target
 winr profile run profile/general-roblox-auto-clicker.toml --focus-target --arm-delay-ms 1500
 winr profile run profile/general-roblox-auto-clicker.toml --max-clicks 100
@@ -147,6 +149,8 @@ Press `Ctrl+C` to stop a running profile cleanly.
 For foreground-only clicker profiles, `--focus-target` is the easiest way to start from the terminal without manually alt-tabbing first. It asks Windows to bring the matched target forward before the loop begins.
 
 If you want to use your PC while a foreground-only profile is armed, set `pause_on_focus_loss = true` and `stop_on_focus_loss = false` in the profile. That makes the click loop pause whenever Roblox loses focus and resume automatically once Roblox is foreground again.
+
+For apps that may tolerate background mouse messages, `mouse click-window` also supports `--input-mode message`, and profiles can set `input_mode = "message"` under `[action]`. This is experimental and app-dependent. It may work for some classic windows and may fail completely for Roblox.
 
 Mouse-click profiles now click a stable client-area point inside the target window instead of blindly clicking wherever the cursor happens to be. If the profile does not specify `x` and `y`, `winr` will try to capture the current cursor position inside the target window and otherwise fall back to the window center.
 

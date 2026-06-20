@@ -129,6 +129,22 @@ impl InputMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseInputMode {
+    Foreground,
+    Message,
+}
+
+impl MouseInputMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Foreground => "foreground",
+            Self::Message => "message",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProfileConfig {
     pub profile: ProfileMetadata,
@@ -154,6 +170,8 @@ pub struct ProfileMetadata {
 pub enum ProfileAction {
     MouseClick {
         button: ProfileMouseButton,
+        #[serde(default)]
+        input_mode: Option<MouseInputMode>,
         #[serde(default)]
         click_point: Option<ProfileClickPoint>,
         #[serde(default)]

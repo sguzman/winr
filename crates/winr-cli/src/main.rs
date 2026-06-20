@@ -14,16 +14,16 @@ use tracing_subscriber::{EnvFilter, fmt};
 use winr_core::{
     ListWindowsOptions, MouseButton, ProfileRunEvent, ProfileRunOptions, close_window,
     focus_window, foreground_window, input_keys, input_sequence, input_text, list_windows,
-    load_profile, maximize_window, minimize_window, mouse_click, mouse_click_window, move_window,
-    resize_window, restore_window, run_profile, screenshot_desktop, screenshot_window, uia_find,
-    uia_invoke, uia_set_text, uia_tree, window_info,
+    load_profile, maximize_window, minimize_window, mouse_click, mouse_click_window_with_mode,
+    move_window, resize_window, restore_window, run_profile, screenshot_desktop, screenshot_window,
+    uia_find, uia_invoke, uia_set_text, uia_tree, window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, InputMode, ProfileRunResult, ScreenshotBackend,
-    ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo,
-    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest,
-    UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd,
-    parse_hwnd,
+    ErrorResponse, InputActionResult, InputMode, MouseInputMode, ProfileRunResult,
+    ScreenshotBackend, ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult,
+    UiaElementInfo, UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode,
+    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
+    format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -330,6 +330,21 @@ impl From<MouseButtonArg> for MouseButton {
     }
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MouseInputModeArg {
+    Foreground,
+    Message,
+}
+
+impl From<MouseInputModeArg> for MouseInputMode {
+    fn from(value: MouseInputModeArg) -> Self {
+        match value {
+            MouseInputModeArg::Foreground => MouseInputMode::Foreground,
+            MouseInputModeArg::Message => MouseInputMode::Message,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 struct MouseClickArgs {
     #[arg(long, value_enum, default_value = "left")]
@@ -350,6 +365,8 @@ struct MouseClickWindowArgs {
     y: i32,
     #[arg(long, value_enum, default_value = "left")]
     button: MouseButtonArg,
+    #[arg(long = "input-mode", value_enum, default_value = "foreground")]
+    input_mode: MouseInputModeArg,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     focus_first: bool,
 }
@@ -522,12 +539,13 @@ fn run(cli: Cli) -> Result<(), WinrError> {
             }
             MouseCommand::ClickWindow(args) => {
                 let selector = require_selector(args.selector.into_selector())?;
-                let result = mouse_click_window(
+                let result = mouse_click_window_with_mode(
                     &selector,
                     args.x,
                     args.y,
                     args.button.into(),
                     args.focus_first,
+                    args.input_mode.into(),
                 )?;
                 emit(cli.json, &result)
             }

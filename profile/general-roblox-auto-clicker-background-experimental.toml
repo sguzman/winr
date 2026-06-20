@@ -1,0 +1,42 @@
+# winr profile: Roblox background autoclicker (experimental)
+# Intended use:
+# - attempt background clicks through posted window mouse messages
+# - let you keep using your real mouse and keyboard in other apps
+# Notes:
+# - this is highly app-dependent and may not work with Roblox at all
+# - if it fails, keep using the foreground profile instead
+
+[profile]
+id = "general-roblox-auto-clicker-background-experimental"
+name = "General Roblox Auto Clicker Background Experimental"
+description = "Attempts background left-click delivery to Roblox through window messages."
+version = "1"
+
+[target]
+title_contains = "Roblox"
+exe = "RobloxPlayerBeta.exe"
+class_name = "WINDOWSCLIENT"
+
+[action]
+kind = "mouse_click"
+button = "left"
+input_mode = "message"
+click_point = "center"
+
+[schedule]
+mode = "interval"
+every_ms = 50
+random_delta_ms = 20
+run_until_stopped = true
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "autoclicks fired: {count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = false
+stop_on_focus_loss = false
+pause_on_focus_loss = false

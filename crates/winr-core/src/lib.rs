@@ -40,12 +40,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, MoveWindow, PostMessageW, SHOW_WINDOW_CMD, SM_CXVIRTUALSCREEN,
     SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
     SendMessageW, SetCursorPos, SetForegroundWindow, ShowWindow, WM_CHAR, WM_CLOSE,
-    WM_GETTEXTLENGTH, WM_KEYDOWN, WM_KEYUP, WM_SETTEXT,
+    WM_GETTEXTLENGTH, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETTEXT,
 };
 use windows::core::{BOOL, PWSTR};
 use winr_types::{
-    InputActionResult, InputMode, Rect, ScreenshotBackend, ScreenshotResult, WindowActionResult,
-    WindowInfo, WindowSelector, WinrError, WinrResult, format_hwnd,
+    InputActionResult, InputMode, MouseInputMode, Rect, ScreenshotBackend, ScreenshotResult,
+    WindowActionResult, WindowInfo, WindowSelector, WinrError, WinrResult, format_hwnd,
 };
 
 pub use config::current_mcp_config;
@@ -307,6 +308,41 @@ pub fn mouse_click_window(
     button: MouseButton,
     focus_first: bool,
 ) -> WinrResult<InputActionResult> {
+    mouse_click_window_with_mode(
+        selector,
+        x,
+        y,
+        button,
+        focus_first,
+        MouseInputMode::Foreground,
+    )
+}
+
+#[instrument(skip(selector))]
+pub fn mouse_click_window_with_mode(
+    selector: &WindowSelector,
+    x: i32,
+    y: i32,
+    button: MouseButton,
+    focus_first: bool,
+    mode: MouseInputMode,
+) -> WinrResult<InputActionResult> {
+    match mode {
+        MouseInputMode::Foreground => {
+            mouse_click_window_foreground(selector, x, y, button, focus_first)
+        }
+        MouseInputMode::Message => mouse_click_window_message(selector, x, y, button, focus_first),
+    }
+}
+
+#[instrument(skip(selector))]
+fn mouse_click_window_foreground(
+    selector: &WindowSelector,
+    x: i32,
+    y: i32,
+    button: MouseButton,
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
     let window = if focus_first {
         focus_window(selector)?
     } else {
@@ -357,6 +393,74 @@ pub fn mouse_click_window(
         action: "mouse_click_window".to_string(),
         mode: InputMode::Foreground,
         details: format!("button={} x={} y={}", button.as_str(), x, y),
+        window: Some(window),
+    })
+}
+
+#[instrument(skip(selector))]
+fn mouse_click_window_message(
+    selector: &WindowSelector,
+    x: i32,
+    y: i32,
+    button: MouseButton,
+    focus_first: bool,
+) -> WinrResult<InputActionResult> {
+    if focus_first {
+        trace!("mouse_input_mode=message ignores focus_first=true");
+    }
+
+    let window = window_info(selector)?;
+    validate_window_ready_for_mouse(&window, "mouse_click_window_message")?;
+    enforce_mouse_permission(Some(&window), "mouse_click_window_message")?;
+    enforce_integrity_level_for_pid(window.pid, "mouse_click_window_message")?;
+    classify_message_support(&window)?;
+
+    let hwnd = parse_selector_hwnd(&window.hwnd);
+    let lparam = make_mouse_lparam(x, y);
+    let (down, up, wparam_down) = button.message_click_messages();
+
+    debug!(
+        hwnd = %window.hwnd,
+        client_x = x,
+        client_y = y,
+        button = button.as_str(),
+        "posting background window-relative mouse messages"
+    );
+
+    unsafe {
+        PostMessageW(Some(hwnd), WM_MOUSEMOVE, WPARAM(0), lparam).map_err(|error| {
+            WinrError::Unsupported {
+                message: format!(
+                    "PostMessageW(WM_MOUSEMOVE) failed for {}: {error}",
+                    window.hwnd
+                ),
+            }
+        })?;
+        PostMessageW(Some(hwnd), down, WPARAM(wparam_down), lparam).map_err(|error| {
+            WinrError::Unsupported {
+                message: format!(
+                    "PostMessageW(mouse down) failed for {}: {error}",
+                    window.hwnd
+                ),
+            }
+        })?;
+        PostMessageW(Some(hwnd), up, WPARAM(0), lparam).map_err(|error| {
+            WinrError::Unsupported {
+                message: format!("PostMessageW(mouse up) failed for {}: {error}", window.hwnd),
+            }
+        })?;
+    }
+
+    Ok(InputActionResult {
+        action: "mouse_click_window".to_string(),
+        mode: InputMode::Message,
+        details: format!(
+            "button={} x={} y={} background=message hwnd={}",
+            button.as_str(),
+            x,
+            y,
+            window.hwnd
+        ),
         window: Some(window),
     })
 }
@@ -945,6 +1049,20 @@ impl MouseButton {
         };
         mouse_input(up)
     }
+
+    fn message_click_messages(self) -> (u32, u32, usize) {
+        match self {
+            Self::Left => (WM_LBUTTONDOWN, WM_LBUTTONUP, 0x0001),
+            Self::Right => (WM_RBUTTONDOWN, WM_RBUTTONUP, 0x0002),
+            Self::Middle => (WM_MBUTTONDOWN, WM_MBUTTONUP, 0x0010),
+        }
+    }
+}
+
+fn make_mouse_lparam(x: i32, y: i32) -> LPARAM {
+    let x = (x as i16 as u16) as u32;
+    let y = (y as i16 as u16) as u32;
+    LPARAM(((y << 16) | x) as isize)
 }
 
 #[derive(Debug, Clone)]

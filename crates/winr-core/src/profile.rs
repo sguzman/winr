@@ -11,13 +11,13 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winr_types::{
-    ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector, ProfileMouseButton,
-    ProfileRunResult, WindowInfo, WindowSelector, WinrError, WinrResult,
+    MouseInputMode, ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector,
+    ProfileMouseButton, ProfileRunResult, WindowInfo, WindowSelector, WinrError, WinrResult,
 };
 
 use crate::{
     ListWindowsOptions, MouseButton, capture_window_live_image, focus_window, foreground_window,
-    list_windows, mouse_click_window, parse_selector_hwnd,
+    list_windows, mouse_click_window_with_mode, parse_selector_hwnd,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,15 +124,21 @@ where
         thread::sleep(options.arm_delay);
     }
 
-    let (button, click_x, click_y) = match &profile.action {
+    let (button, input_mode, click_x, click_y) = match &profile.action {
         ProfileAction::MouseClick {
             button,
+            input_mode,
             click_point,
             x,
             y,
         } => {
             let (click_x, click_y) = resolve_click_point(&target, *click_point, *x, *y)?;
-            (*button, click_x, click_y)
+            (
+                *button,
+                input_mode.unwrap_or(MouseInputMode::Foreground),
+                click_x,
+                click_y,
+            )
         }
     };
     let every = Duration::from_millis(profile.schedule.every_ms);
@@ -211,7 +217,14 @@ where
                     pixel_count: match_result.pixel_count,
                 });
                 if detector_armed {
-                    mouse_click_window(&target_selector, client_x, client_y, button.into(), false)?;
+                    mouse_click_window_with_mode(
+                        &target_selector,
+                        client_x,
+                        client_y,
+                        button.into(),
+                        false,
+                        input_mode,
+                    )?;
                     fired += 1;
                     on_event(ProfileRunEvent::TriggerFired { count: fired });
                     detector_armed = false;
@@ -221,7 +234,14 @@ where
                 detector_armed = true;
             }
         } else {
-            mouse_click_window(&target_selector, click_x, click_y, button.into(), false)?;
+            mouse_click_window_with_mode(
+                &target_selector,
+                click_x,
+                click_y,
+                button.into(),
+                false,
+                input_mode,
+            )?;
             fired += 1;
             on_event(ProfileRunEvent::TriggerFired { count: fired });
             clicked = true;
@@ -256,6 +276,12 @@ where
 }
 
 fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
+    let action_input_mode = match &profile.action {
+        ProfileAction::MouseClick { input_mode, .. } => {
+            input_mode.unwrap_or(MouseInputMode::Foreground)
+        }
+    };
+
     if !profile.target.has_criteria() {
         return Err(WinrError::Unsupported {
             message: "profile target must include at least one selector field".to_string(),
@@ -277,7 +303,8 @@ fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
         });
     }
 
-    if !profile.safety.require_foreground_window {
+    if action_input_mode == MouseInputMode::Foreground && !profile.safety.require_foreground_window
+    {
         return Err(WinrError::Unsupported {
             message: "mouse click profiles currently require require_foreground_window=true"
                 .to_string(),
@@ -924,6 +951,15 @@ pause_on_focus_loss = false
         profile.safety.require_foreground_window = false;
         let error = validate_profile(&profile).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn profile_validation_allows_background_message_mouse_clicks() {
+        let mut profile = sample_profile();
+        let ProfileAction::MouseClick { input_mode, .. } = &mut profile.action;
+        *input_mode = Some(MouseInputMode::Message);
+        profile.safety.require_foreground_window = false;
+        validate_profile(&profile).expect("message-mode mouse click profile should validate");
     }
 
     #[test]

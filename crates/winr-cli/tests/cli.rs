@@ -241,6 +241,28 @@ fn mouse_click_window_reports_not_found() {
 }
 
 #[test]
+fn mouse_click_window_message_mode_reports_not_found() {
+    let output = run_winr(&[
+        "--json",
+        "mouse",
+        "click-window",
+        "--input-mode",
+        "message",
+        "--title",
+        "__WINR_SHOULD_NOT_EXIST__",
+        "--x",
+        "10",
+        "--y",
+        "20",
+    ]);
+
+    assert!(!output.status.success(), "expected not found failure");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "WindowNotFound");
+}
+
+#[test]
 fn screenshot_desktop_honors_permission_config() {
     let output = run_winr_with_config(
         &[
