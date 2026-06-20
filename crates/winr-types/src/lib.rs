@@ -202,6 +202,12 @@ impl AdvancedProfileBackend {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct AdvancedSessionId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct AdvancedSequenceNumber(pub u64);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProfileAction {
@@ -320,6 +326,23 @@ pub enum AdvancedBackendLifecycleState {
     Detached,
 }
 
+impl AdvancedBackendLifecycleState {
+    pub fn can_transition_to(self, next: Self) -> bool {
+        match (self, next) {
+            (current, next) if current == next => true,
+            (Self::Discovered, Self::Attachable) => true,
+            (Self::Discovered, Self::Detached) => true,
+            (Self::Attachable, Self::Attached) => true,
+            (Self::Attachable, Self::Detached) => true,
+            (Self::Attached, Self::Degraded) => true,
+            (Self::Attached, Self::Detached) => true,
+            (Self::Degraded, Self::Attached) => true,
+            (Self::Degraded, Self::Detached) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct AdvancedBackendCapabilities {
     #[serde(default)]
@@ -387,6 +410,27 @@ pub enum AdvancedAgentEvent {
         frame_id: u64,
         detail: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedHostCommandEnvelope {
+    pub session_id: AdvancedSessionId,
+    pub sequence: AdvancedSequenceNumber,
+    pub command: AdvancedHostCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedAgentEventEnvelope {
+    pub session_id: AdvancedSessionId,
+    pub sequence: AdvancedSequenceNumber,
+    pub event: AdvancedAgentEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedProfileExecutionPlan {
+    pub profile_id: String,
+    pub backend: AdvancedProfileBackend,
+    pub target: AdvancedTargetRef,
 }
 
 const fn default_sample_stride() -> u32 {

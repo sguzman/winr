@@ -22,7 +22,7 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 ## Target Architecture
 
 - [ ] Preserve `winr-core` as the standard desktop automation backend for windows, screenshots, foreground input, message input, and UI Automation
-- [ ] Add a `winr-inject` crate for process-side advanced backend work such as injection, render observation, or internal input shims
+- [x] Add a `winr-inject` crate for process-side advanced backend work such as injection, render observation, or internal input shims
 - [ ] Add a `winr-perception` crate for shared state and vision that can consume screenshots, render-hook frames, memory-backed signals, and detectors
 - [ ] Add a `winr-workflows` crate for higher-level task and behavior execution
 - [ ] Support app-specific backend packs for targets such as Roblox
@@ -46,10 +46,10 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 ## Phase 0: Contracts And Boundaries
 
 - [ ] Define backend traits for observation, input, and workflow execution
-- [ ] Define a shared target identity model that ties together HWND, PID, executable name, and backend attachment
-- [ ] Define explicit lifecycle states such as discovered, attachable, attached, degraded, and detached
+- [x] Define a shared target identity model that ties together HWND, PID, executable name, and backend attachment
+- [x] Define explicit lifecycle states such as discovered, attachable, attached, degraded, and detached
 - [ ] Define structured error families for advanced backend failures
-- [ ] Define capability negotiation for backend selection
+- [x] Define capability negotiation for backend selection
 - [ ] Decide which APIs stay in `winr-core` versus moving to a new crate
 - [ ] Decide how CLI and MCP choose between ordinary and advanced backends
 - [ ] Decide whether advanced backend support is opt-in per profile, per target, or auto-detected
@@ -72,9 +72,9 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 - [ ] Keep low-level observations, low-level or semantic input hooks, internal capability reporting, and state streaming in the injected agent
 - [ ] Define IPC for command requests and responses
 - [ ] Define IPC for event streams and observation updates
-- [ ] Add health and version handshake behavior
+- [x] Add health and version handshake behavior
 - [ ] Support binary payloads when frame transport is needed
-- [ ] Version the protocol from the first draft
+- [x] Version the protocol from the first draft
 - [ ] Avoid assuming render hooks, memory readers, and input shims must always come from the same agent implementation
 
 ## Phase 3: Observation Stack
@@ -178,12 +178,12 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 - [ ] Keep one MCP surface
 - [ ] Keep one workflow concept across backends
 - [ ] Hide backend-specific execution behind capability selection
-- [ ] Let profiles eventually declare backend preferences such as `foreground`, `message`, `inject`, or `auto`
+- [x] Let profiles eventually declare backend preferences such as `foreground`, `message`, `inject`, or `auto`
 
 ## Suggested Implementation Order
 
-- [ ] Define advanced backend traits and lifecycle contracts
-- [ ] Define host-agent split and protocol
+- [x] Define advanced backend traits and lifecycle contracts
+- [x] Define host-agent split and protocol
 - [ ] Define normalized observation frame model
 - [ ] Define semantic input action model
 - [ ] Design workflow DSL v2
