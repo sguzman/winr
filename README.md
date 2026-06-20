@@ -25,11 +25,16 @@ The project is built around a simple rule: prove the Windows primitives locally 
 ## Workspace layout
 
 - `crates/winr-types`: shared DTOs, selectors, JSON payloads, and error contracts
+- `crates/winr-inject`: advanced backend routing, discovery, and future injection/session plumbing
+- `crates/winr-perception`: shared observation, detector, and entity models for advanced targets
+- `crates/winr-workflows`: workflow planning, task, intent, and app-pack interfaces
 - `crates/winr-core`: Win32, screenshot, input, and UI Automation implementation
 - `crates/winr-cli`: the `winr` binary
 - `crates/winr-mcp`: stdio MCP server backed only by `winr-core`
+- `packs/`: target-specific manifests and future assets such as Roblox-specific packs
 - `docs/roadmap.md`: checkbox roadmap and milestone tracker
 - `docs/safety.md`: config format, permission model, and integrity-level behavior
+- `docs/advanced-backend-architecture.md`: current advanced backend crate boundaries
 - `tmp/project.md`: current product spec driving implementation
 
 ## Architecture

@@ -1,0 +1,14 @@
+[package]
+name = "winr-perception"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "winr_perception"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+schemars.workspace = true
+serde_json.workspace = true
+winr-types = { path = "../winr-types" }

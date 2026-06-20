@@ -1,0 +1,15 @@
+[package]
+name = "winr-workflows"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "winr_workflows"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+schemars.workspace = true
+serde_json.workspace = true
+winr-perception = { path = "../winr-perception" }
+winr-types = { path = "../winr-types" }

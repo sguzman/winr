@@ -2,6 +2,8 @@
 members = [
     "crates/winr-types",
     "crates/winr-inject",
+    "crates/winr-perception",
+    "crates/winr-workflows",
     "crates/winr-core",
     "crates/winr-cli",
     "crates/winr-mcp",

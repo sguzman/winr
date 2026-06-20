@@ -7,9 +7,9 @@ This document records the concrete architectural decisions made to complete Phas
 - `winr-core` remains the standard desktop automation backend for Win32 windows, screenshots, foreground input, message input, and UI Automation.
 - `winr-inject` owns advanced backend scaffolding, including backend routing, session state, protocol envelopes, and attachable-target discovery.
 - `winr-types` owns shared DTOs, protocol messages, lifecycle state, backend selection metadata, and advanced backend error payloads.
-- future crates:
-  - `winr-perception` will own richer scene, detector, and observation models
-  - `winr-workflows` will own higher-level workflow execution and navigation behaviors
+- `winr-perception` owns generic scene, detector, and observation models
+- `winr-workflows` owns higher-level workflow contracts, task and intent models, and pack-facing planning interfaces
+- `packs/` owns target-specific manifests and assets outside the generic crates
 
 ## Frontend routing
 
@@ -48,6 +48,12 @@ The advanced backend contract is split into three responsibilities:
   - coordinated use of observation and input backend behavior
 
 These traits live in `winr-inject` for now because the only advanced backend implementation scaffold currently lives there.
+
+## App-specific packs
+
+- target-specific logic should not be hardcoded into the generic `winr-perception` or `winr-workflows` crates
+- target-specific manifests and assets should live under `packs/`
+- generic crates may define pack interfaces and registries, but not target-specific behavior
 
 ## Error model
 

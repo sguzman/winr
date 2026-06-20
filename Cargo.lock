@@ -1362,6 +1362,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "winr-perception"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "winr-types",
+]
+
+[[package]]
 name = "winr-types"
 version = "0.1.0"
 dependencies = [
@@ -1369,6 +1379,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "winr-workflows"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "winr-perception",
+ "winr-types",
 ]
 
 [[package]]

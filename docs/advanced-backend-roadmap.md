@@ -21,12 +21,14 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 
 ## Target Architecture
 
-- [ ] Preserve `winr-core` as the standard desktop automation backend for windows, screenshots, foreground input, message input, and UI Automation
+- [x] Preserve `winr-core` as the standard desktop automation backend for windows, screenshots, foreground input, message input, and UI Automation
 - [x] Add a `winr-inject` crate for process-side advanced backend work such as injection, render observation, or internal input shims
-- [ ] Add a `winr-perception` crate for shared state and vision that can consume screenshots, render-hook frames, memory-backed signals, and detectors
-- [ ] Add a `winr-workflows` crate for higher-level task and behavior execution
-- [ ] Support app-specific backend packs for targets such as Roblox
-- [ ] Keep app-specific logic out of the generic workflow engine
+- [x] Add a `winr-perception` crate for shared state and vision that can consume screenshots, render-hook frames, memory-backed signals, and detectors
+- [x] Add a `winr-workflows` crate for higher-level task and behavior execution
+- [x] Support app-specific backend packs for targets such as Roblox
+- [x] Keep app-specific logic out of the generic workflow engine
+
+See `docs/advanced-backend-architecture.md` for the current crate layout and `packs/` structure.
 
 ## Core Principles
 
