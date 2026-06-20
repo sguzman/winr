@@ -35,4 +35,5 @@ template = "autoclicks fired: {count}"
 [safety]
 require_visible_window = true
 require_foreground_window = true
-stop_on_focus_loss = true
+stop_on_focus_loss = false
+pause_on_focus_loss = true

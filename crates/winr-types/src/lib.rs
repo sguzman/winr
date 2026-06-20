@@ -228,6 +228,8 @@ pub struct ProfileSafety {
     pub require_visible_window: bool,
     pub require_foreground_window: bool,
     pub stop_on_focus_loss: bool,
+    #[serde(default)]
+    pub pause_on_focus_loss: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

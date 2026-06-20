@@ -38,8 +38,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetSystemMetrics, GetWindowRect,
     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsChild, IsIconic,
     IsWindowVisible, MoveWindow, PostMessageW, SHOW_WINDOW_CMD, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_MAXIMIZE, SW_MINIMIZE,
-    SW_RESTORE, SendMessageW, SetCursorPos, SetForegroundWindow, ShowWindow, WM_CHAR, WM_CLOSE,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+    SendMessageW, SetCursorPos, SetForegroundWindow, ShowWindow, WM_CHAR, WM_CLOSE,
     WM_GETTEXTLENGTH, WM_KEYDOWN, WM_KEYUP, WM_SETTEXT,
 };
 use windows::core::{BOOL, PWSTR};
@@ -232,7 +232,10 @@ pub fn input_keys(
     focus_first: bool,
     mode: InputMode,
 ) -> WinrResult<InputActionResult> {
-    debug!(mode = mode.as_str(), focus_first, combo, "dispatching key input");
+    debug!(
+        mode = mode.as_str(),
+        focus_first, combo, "dispatching key input"
+    );
     match mode {
         InputMode::Foreground => input_keys_foreground(selector, combo, focus_first),
         InputMode::Uia => Err(WinrError::Unsupported {
@@ -1171,7 +1174,9 @@ fn input_sequence_message(
         } else {
             let combo = parse_key_combo(step).map_err(|error| match error {
                 WinrError::Unsupported { message } => WinrError::Unsupported {
-                    message: format!("message input sequence step '{step}' is unsupported: {message}"),
+                    message: format!(
+                        "message input sequence step '{step}' is unsupported: {message}"
+                    ),
                 },
                 other => other,
             })?;
@@ -1211,7 +1216,12 @@ fn resolve_message_target(window: &WindowInfo) -> WinrResult<MessageTarget> {
     }
 
     let mut children = enumerate_child_targets(hwnd)?;
-    children.sort_by_key(|target| (!is_edit_like_class(&target.class_name), target.class_name.clone()));
+    children.sort_by_key(|target| {
+        (
+            !is_edit_like_class(&target.class_name),
+            target.class_name.clone(),
+        )
+    });
 
     if let Some(target) = children
         .into_iter()
@@ -1337,11 +1347,11 @@ fn is_edit_like_class(class_name: &str) -> bool {
 
 fn send_message_text(target: &MessageTarget, text: &str) -> WinrResult<()> {
     if is_edit_like_class(&target.class_name) {
-        let wide = text.encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
-        let current_len = unsafe {
-            SendMessageW(target.hwnd, WM_GETTEXTLENGTH, None, None)
-        }
-        .0;
+        let wide = text
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let current_len = unsafe { SendMessageW(target.hwnd, WM_GETTEXTLENGTH, None, None) }.0;
 
         if target.class_name.eq_ignore_ascii_case("Edit") && current_len == 0 {
             trace!(target = %target.hwnd_formatted, "sending WM_SETTEXT to classic edit control");
@@ -1403,12 +1413,7 @@ fn send_message_combo(target: &MessageTarget, combo: &ParsedKeyCombo) -> WinrRes
 fn send_message_key(hwnd: HWND, message: u32, key: VIRTUAL_KEY) {
     trace!(hwnd = %format_hwnd(hwnd_value(hwnd)), message, key = key.0, "sending key message");
     unsafe {
-        SendMessageW(
-            hwnd,
-            message,
-            Some(WPARAM(key.0 as usize)),
-            Some(LPARAM(1)),
-        );
+        SendMessageW(hwnd, message, Some(WPARAM(key.0 as usize)), Some(LPARAM(1)));
     }
 }
 

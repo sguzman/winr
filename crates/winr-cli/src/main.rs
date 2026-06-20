@@ -21,9 +21,9 @@ use winr_core::{
 use winr_types::{
     ErrorResponse, InputActionResult, InputMode, ProfileRunResult, ScreenshotBackend,
     ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo,
-    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode,
-    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
-    format_hwnd, parse_hwnd,
+    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest,
+    UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd,
+    parse_hwnd,
 };
 
 fn main() {
@@ -234,15 +234,30 @@ struct WindowScreenshotArgs {
 #[derive(Debug, Args)]
 struct ProfileRunArgs {
     path: PathBuf,
-    #[arg(long, help = "Stop waiting after this many milliseconds if the target never appears")]
+    #[arg(
+        long,
+        help = "Stop waiting after this many milliseconds if the target never appears"
+    )]
     wait_timeout_ms: Option<u64>,
-    #[arg(long, default_value_t = 250, help = "Polling interval while waiting for the target window")]
+    #[arg(
+        long,
+        default_value_t = 250,
+        help = "Polling interval while waiting for the target window"
+    )]
     poll_interval_ms: u64,
     #[arg(long, help = "Stop automatically after this many clicks")]
     max_clicks: Option<u64>,
-    #[arg(long, default_value_t = false, help = "Try to focus the matched target window before starting")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Try to focus the matched target window before starting"
+    )]
     focus_target: bool,
-    #[arg(long, default_value_t = 0, help = "Wait this many milliseconds after target acquisition before starting clicks")]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Wait this many milliseconds after target acquisition before starting clicks"
+    )]
     arm_delay_ms: u64,
 }
 
@@ -650,6 +665,7 @@ fn run_profile_with_console(
     let mut rendered_progress = false;
     let mut announced_wait = false;
     let mut acquired_target = false;
+    let mut announced_focus_wait = false;
 
     let result = run_profile(
         profile,
@@ -672,6 +688,28 @@ fn run_profile_with_console(
                 }
                 let _ = writeln!(stderr, "target acquired: {} {}", window.hwnd, window.title);
                 acquired_target = true;
+            }
+            ProfileRunEvent::WaitingForFocusReturn { selector } => {
+                if json || announced_focus_wait {
+                    return;
+                }
+                let _ = writeln!(
+                    stderr,
+                    "target lost focus; waiting to resume: title={:?} exe={:?} class={:?}",
+                    selector.title_contains, selector.exe, selector.class_name
+                );
+                announced_focus_wait = true;
+            }
+            ProfileRunEvent::FocusRestored { window } => {
+                if json {
+                    return;
+                }
+                let _ = writeln!(
+                    stderr,
+                    "target regained focus: {} {}",
+                    window.hwnd, window.title
+                );
+                announced_focus_wait = false;
             }
             ProfileRunEvent::DetectorMatched { .. } => {}
             ProfileRunEvent::TriggerFired { count } => {

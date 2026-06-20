@@ -320,7 +320,9 @@ stop_on_focus_loss = true
         "--json",
         "profile",
         "run",
-        profile_path.to_str().expect("temp profile path should be valid"),
+        profile_path
+            .to_str()
+            .expect("temp profile path should be valid"),
         "--wait-timeout-ms",
         "1",
     ]);

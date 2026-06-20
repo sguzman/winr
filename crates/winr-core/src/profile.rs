@@ -45,6 +45,8 @@ impl Default for ProfileRunOptions {
 pub enum ProfileRunEvent {
     WaitingForTarget { selector: WindowSelector },
     TargetAcquired { window: WindowInfo },
+    WaitingForFocusReturn { selector: WindowSelector },
+    FocusRestored { window: WindowInfo },
     DetectorMatched { x: i32, y: i32, pixel_count: u32 },
     TriggerFired { count: u64 },
     Stopped { count: u64, reason: String },
@@ -140,6 +142,7 @@ where
         ..WindowSelector::default()
     };
     let mut detector_armed = true;
+    let mut waiting_for_focus_return = false;
 
     loop {
         if should_stop() {
@@ -151,20 +154,48 @@ where
             break;
         }
 
-        if profile.safety.stop_on_focus_loss {
+        if profile.safety.require_foreground_window {
             let foreground = foreground_window()?;
             if !profile.target.matches(&foreground) {
-                warn!(
-                    expected_title = ?profile.target.title_contains,
-                    actual = %foreground.hwnd,
+                if profile.safety.pause_on_focus_loss {
+                    if !waiting_for_focus_return {
+                        warn!(
+                            expected_title = ?profile.target.title_contains,
+                            actual = %foreground.hwnd,
+                            fired,
+                            "profile target lost foreground; pausing until focus returns"
+                        );
+                        on_event(ProfileRunEvent::WaitingForFocusReturn {
+                            selector: profile.target.clone(),
+                        });
+                        waiting_for_focus_return = true;
+                    }
+                    thread::sleep(options.poll_interval);
+                    continue;
+                }
+
+                if profile.safety.stop_on_focus_loss {
+                    warn!(
+                        expected_title = ?profile.target.title_contains,
+                        actual = %foreground.hwnd,
+                        fired,
+                        "profile target lost foreground; stopping"
+                    );
+                    on_event(ProfileRunEvent::Stopped {
+                        count: fired,
+                        reason: "target lost foreground".to_string(),
+                    });
+                    break;
+                }
+            } else if waiting_for_focus_return {
+                info!(
+                    hwnd = %foreground.hwnd,
+                    title = %foreground.title,
                     fired,
-                    "profile target lost foreground; stopping"
+                    "profile target regained foreground; resuming"
                 );
-                on_event(ProfileRunEvent::Stopped {
-                    count: fired,
-                    reason: "target lost foreground".to_string(),
-                });
-                break;
+                on_event(ProfileRunEvent::FocusRestored { window: foreground });
+                waiting_for_focus_return = false;
             }
         }
 
@@ -180,13 +211,7 @@ where
                     pixel_count: match_result.pixel_count,
                 });
                 if detector_armed {
-                    mouse_click_window(
-                        &target_selector,
-                        client_x,
-                        client_y,
-                        button.into(),
-                        false,
-                    )?;
+                    mouse_click_window(&target_selector, client_x, client_y, button.into(), false)?;
                     fired += 1;
                     on_event(ProfileRunEvent::TriggerFired { count: fired });
                     detector_armed = false;
@@ -214,7 +239,11 @@ where
         }
 
         let delta = random_delta(profile.schedule.random_delta_ms);
-        trace!(fired, sleep_ms = every.as_millis() as u64 + delta, "sleeping between triggers");
+        trace!(
+            fired,
+            sleep_ms = every.as_millis() as u64 + delta,
+            "sleeping between triggers"
+        );
         thread::sleep(every + Duration::from_millis(delta));
     }
 
@@ -251,6 +280,13 @@ fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
     if !profile.safety.require_foreground_window {
         return Err(WinrError::Unsupported {
             message: "mouse click profiles currently require require_foreground_window=true"
+                .to_string(),
+        });
+    }
+
+    if profile.safety.stop_on_focus_loss && profile.safety.pause_on_focus_loss {
+        return Err(WinrError::Unsupported {
+            message: "profile safety cannot enable both stop_on_focus_loss and pause_on_focus_loss"
                 .to_string(),
         });
     }
@@ -307,7 +343,10 @@ fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
     Ok(())
 }
 
-fn resolve_profile_target(profile: &ProfileConfig, focus_target: bool) -> WinrResult<Option<WindowInfo>> {
+fn resolve_profile_target(
+    profile: &ProfileConfig,
+    focus_target: bool,
+) -> WinrResult<Option<WindowInfo>> {
     let mut matches = list_windows(
         &profile.target,
         ListWindowsOptions {
@@ -316,7 +355,8 @@ fn resolve_profile_target(profile: &ProfileConfig, focus_target: bool) -> WinrRe
     )?;
     matches.retain(|window| !window.minimized);
     matches.sort_by(|left, right| {
-        right.foreground
+        right
+            .foreground
             .cmp(&left.foreground)
             .then_with(|| left.hwnd.cmp(&right.hwnd))
             .then_with(|| left.title.cmp(&right.title))
@@ -550,11 +590,17 @@ fn load_template_image(path: &str) -> WinrResult<RgbaImage> {
     let full_path = PathBuf::from(path);
     let image = ImageReader::open(&full_path)
         .map_err(|error| WinrError::Unsupported {
-            message: format!("failed to open template image {}: {error}", full_path.display()),
+            message: format!(
+                "failed to open template image {}: {error}",
+                full_path.display()
+            ),
         })?
         .decode()
         .map_err(|error| WinrError::Unsupported {
-            message: format!("failed to decode template image {}: {error}", full_path.display()),
+            message: format!(
+                "failed to decode template image {}: {error}",
+                full_path.display()
+            ),
         })?;
     Ok(image.to_rgba8())
 }
@@ -694,7 +740,10 @@ fn detect_template_match(
                 for template_x in (0..template_width as usize).step_by(stride) {
                     let template_pixel = template.get_pixel(template_x as u32, template_y as u32).0;
                     let image_pixel = image
-                        .get_pixel((offset_x + template_x) as u32, (offset_y + template_y) as u32)
+                        .get_pixel(
+                            (offset_x + template_x) as u32,
+                            (offset_y + template_y) as u32,
+                        )
                         .0;
                     total += 1;
                     if color_within_tolerance(
@@ -742,12 +791,7 @@ fn random_click_offset(size: i32) -> i32 {
     min + (nanos % span) as i32
 }
 
-fn neighbors(
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-) -> [(usize, usize); 4] {
+fn neighbors(x: usize, y: usize, width: usize, height: usize) -> [(usize, usize); 4] {
     [
         (x.saturating_sub(1), y),
         ((x + 1).min(width.saturating_sub(1)), y),
@@ -769,11 +813,7 @@ fn color_within_tolerance(
 }
 
 #[cfg(test)]
-fn detect_all_matching_pixels(
-    image: &RgbaImage,
-    target: (u8, u8, u8),
-    tolerance: u8,
-) -> u32 {
+fn detect_all_matching_pixels(image: &RgbaImage, target: (u8, u8, u8), tolerance: u8) -> u32 {
     let mut pixel_count = 0_u32;
     for (_, _, pixel) in image.enumerate_pixels() {
         if color_within_tolerance(pixel.0[0], pixel.0[1], pixel.0[2], target, tolerance) {
@@ -839,6 +879,7 @@ template = "autoclicks fired: {count}"
 require_visible_window = true
 require_foreground_window = true
 stop_on_focus_loss = true
+pause_on_focus_loss = false
 "#,
         )
         .expect("sample profile should parse")
@@ -881,6 +922,14 @@ stop_on_focus_loss = true
     fn profile_validation_requires_foreground_for_mouse_clicks() {
         let mut profile = sample_profile();
         profile.safety.require_foreground_window = false;
+        let error = validate_profile(&profile).unwrap_err();
+        assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn profile_validation_rejects_conflicting_focus_loss_modes() {
+        let mut profile = sample_profile();
+        profile.safety.pause_on_focus_loss = true;
         let error = validate_profile(&profile).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
     }
@@ -935,13 +984,9 @@ stop_on_focus_loss = true
             },
         };
 
-        let error = resolve_click_point(
-            &target,
-            Some(ProfileClickPoint::Center),
-            Some(50),
-            Some(60),
-        )
-        .unwrap_err();
+        let error =
+            resolve_click_point(&target, Some(ProfileClickPoint::Center), Some(50), Some(60))
+                .unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
     }
 
@@ -1049,8 +1094,8 @@ stop_on_focus_loss = true
             }
         }
 
-        let found = detect_color_match(&image, (179, 48, 218), 5, 4)
-            .expect("cluster should be detected");
+        let found =
+            detect_color_match(&image, (179, 48, 218), 5, 4).expect("cluster should be detected");
         assert_eq!(found.x, 3);
         assert_eq!(found.y, 5);
         assert_eq!(found.pixel_count, 9);

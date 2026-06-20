@@ -22,9 +22,10 @@ use winr_core::{
     uia_tree as core_uia_tree, window_info as core_window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, InputMode, ScreenshotBackend, ScreenshotResult, SuccessResponse,
-    UiaActionRequest, UiaActionResult, UiaFindRequest, UiaFindResponse, UiaSetTextRequest,
-    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
+    ErrorResponse, InputActionResult, InputMode, ScreenshotBackend, ScreenshotResult,
+    SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest, UiaFindResponse,
+    UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo,
+    WindowSelector, WinrError,
 };
 
 #[derive(Debug, Clone, Default)]
