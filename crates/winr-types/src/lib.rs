@@ -433,6 +433,28 @@ pub struct AdvancedProfileExecutionPlan {
     pub target: AdvancedTargetRef,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedAttachableTarget {
+    pub target: AdvancedTargetRef,
+    pub lifecycle_state: AdvancedBackendLifecycleState,
+    pub title: String,
+    pub class_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exe: Option<String>,
+    pub visible: bool,
+    pub minimized: bool,
+    pub foreground: bool,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedTargetDiscovery {
+    pub selector: WindowSelector,
+    pub candidate_count: usize,
+    pub candidates: Vec<AdvancedAttachableTarget>,
+}
+
 const fn default_sample_stride() -> u32 {
     3
 }

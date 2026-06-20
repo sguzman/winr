@@ -1,11 +1,15 @@
+mod discovery;
+
 use tracing::{debug, instrument};
 use winr_types::{
     AdvancedAgentEvent, AdvancedAgentEventEnvelope, AdvancedBackendCapabilities,
     AdvancedBackendHello, AdvancedBackendLifecycleState, AdvancedBackendSelection,
     AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedProfileBackend,
     AdvancedProfileExecutionPlan, AdvancedSequenceNumber, AdvancedSessionId, ProfileConfig,
-    WinrError, WinrResult,
+    WindowSelector, WinrError, WinrResult,
 };
+
+pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdvancedBackendSession {
@@ -23,13 +27,23 @@ pub fn prepare_profile_backend(profile: &ProfileConfig) -> WinrResult<AdvancedBa
         "preparing advanced backend session"
     );
 
-    Err(WinrError::Unsupported {
-        message: format!(
-            "advanced backend '{}' is not implemented yet for profile '{}'",
-            profile.execution.backend.as_str(),
-            profile.profile.id
-        ),
-    })
+    let selection = resolve_backend_selection(profile);
+    if selection.resolved != AdvancedProfileBackend::Inject {
+        return Err(WinrError::Unsupported {
+            message: format!(
+                "advanced backend preparation is only valid for resolved backend '{}'",
+                AdvancedProfileBackend::Inject.as_str()
+            ),
+        });
+    }
+
+    let discovery = discover_profile_targets(profile)?;
+    let candidate = resolve_attachable_target(&discovery)?;
+    let mut hello = stub_hello(profile);
+    hello.lifecycle_state = candidate.lifecycle_state;
+    hello.target = candidate.target;
+
+    Ok(AdvancedBackendSession::new(AdvancedSessionId(1), hello))
 }
 
 pub fn resolve_backend_selection(profile: &ProfileConfig) -> AdvancedBackendSelection {
@@ -83,6 +97,22 @@ pub fn build_execution_plan(profile: &ProfileConfig) -> AdvancedProfileExecution
             window_class: profile.target.class_name.clone(),
             title_hint: profile.target.title_contains.clone(),
         },
+    }
+}
+
+pub fn discover_profile_targets(
+    profile: &ProfileConfig,
+) -> WinrResult<winr_types::AdvancedTargetDiscovery> {
+    discover_attachable_targets(&profile.target)
+}
+
+pub fn selector_into_target_ref(selector: &WindowSelector) -> winr_types::AdvancedTargetRef {
+    winr_types::AdvancedTargetRef {
+        hwnd: selector.hwnd.clone(),
+        pid: selector.pid,
+        exe: selector.exe.clone(),
+        window_class: selector.class_name.clone(),
+        title_hint: selector.title_contains.clone(),
     }
 }
 
@@ -258,8 +288,14 @@ stop_on_focus_loss = true
     fn explicit_inject_backend_returns_stub_error() {
         let mut profile = sample_profile();
         profile.execution.backend = AdvancedProfileBackend::Inject;
-        let error = prepare_profile_backend(&profile).unwrap_err();
-        assert!(matches!(error, WinrError::Unsupported { .. }));
+        let result = prepare_profile_backend(&profile);
+        match result {
+            Ok(session) => assert_eq!(session.hello.backend, AdvancedProfileBackend::Inject),
+            Err(error) => assert!(matches!(
+                error,
+                WinrError::WindowNotFound | WinrError::Unsupported { .. }
+            )),
+        }
     }
 
     #[test]

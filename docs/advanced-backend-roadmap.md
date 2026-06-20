@@ -56,7 +56,7 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 
 ## Phase 1: Process Discovery And Attachment
 
-- [ ] Build target discovery by PID, executable name, HWND, and window class chain
+- [x] Build target discovery by PID, executable name, HWND, and window class chain
 - [ ] Capture process metadata including architecture, bitness, loaded modules, integrity level, foreground state, visibility state, and likely rendering window
 - [ ] Implement attach and detach lifecycle handling
 - [ ] Implement restart detection and reattachment policy

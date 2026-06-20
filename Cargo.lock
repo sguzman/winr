@@ -1341,6 +1341,7 @@ dependencies = [
  "serde_json",
  "toml",
  "tracing",
+ "windows",
  "winr-types",
 ]
 
