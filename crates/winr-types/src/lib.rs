@@ -567,6 +567,7 @@ pub struct AdvancedAttachableTarget {
     pub visible: bool,
     pub minimized: bool,
     pub foreground: bool,
+    pub process: AdvancedProcessMetadata,
     #[serde(default)]
     pub notes: Vec<String>,
 }
@@ -576,6 +577,108 @@ pub struct AdvancedTargetDiscovery {
     pub selector: WindowSelector,
     pub candidate_count: usize,
     pub candidates: Vec<AdvancedAttachableTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedProcessArchitecture {
+    #[default]
+    Unknown,
+    X86,
+    X64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedIntegrityLevel {
+    Untrusted,
+    Low,
+    Medium,
+    High,
+    System,
+    Protected,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct AdvancedProcessMetadata {
+    pub architecture: AdvancedProcessArchitecture,
+    pub integrity_level: AdvancedIntegrityLevel,
+    #[serde(default)]
+    pub loaded_modules: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executable_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub likely_rendering_window: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedAttachmentHealthStatus {
+    Healthy,
+    Stale,
+    Lost,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedAttachmentHealth {
+    pub status: AdvancedAttachmentHealthStatus,
+    pub heartbeat_failures: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedReattachMode {
+    Never,
+    IfProcessRestarted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedAttachmentPolicy {
+    pub reattach_mode: AdvancedReattachMode,
+    pub heartbeat_failure_threshold: u32,
+}
+
+impl Default for AdvancedAttachmentPolicy {
+    fn default() -> Self {
+        Self {
+            reattach_mode: AdvancedReattachMode::IfProcessRestarted,
+            heartbeat_failure_threshold: 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedAttachment {
+    pub selector: WindowSelector,
+    pub policy: AdvancedAttachmentPolicy,
+    pub target: AdvancedAttachableTarget,
+    pub health: AdvancedAttachmentHealth,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AdvancedAttachmentEvent {
+    Attached {
+        target: AdvancedAttachableTarget,
+    },
+    Detached {
+        detail: String,
+    },
+    HeartbeatHealthy {
+        target: AdvancedAttachableTarget,
+    },
+    HeartbeatFailed {
+        detail: String,
+        failures: u32,
+    },
+    Reattached {
+        previous_pid: Option<u32>,
+        target: AdvancedAttachableTarget,
+    },
 }
 
 const fn default_sample_stride() -> u32 {

@@ -65,13 +65,15 @@ See `docs/advanced-backend-phase0-decisions.md` for the concrete decisions recor
 ## Phase 1: Process Discovery And Attachment
 
 - [x] Build target discovery by PID, executable name, HWND, and window class chain
-- [ ] Capture process metadata including architecture, bitness, loaded modules, integrity level, foreground state, visibility state, and likely rendering window
-- [ ] Implement attach and detach lifecycle handling
-- [ ] Implement restart detection and reattachment policy
-- [ ] Add heartbeat and health-check plumbing
-- [ ] Ensure attachment can survive target relaunches when possible
-- [ ] Ensure attachment failures are observable and logged with concrete reasons
-- [ ] Handle multiple candidate processes deterministically
+- [x] Capture process metadata including architecture, bitness, loaded modules, integrity level, foreground state, visibility state, and likely rendering window
+- [x] Implement attach and detach lifecycle handling
+- [x] Implement restart detection and reattachment policy
+- [x] Add heartbeat and health-check plumbing
+- [x] Ensure attachment can survive target relaunches when possible
+- [x] Ensure attachment failures are observable and logged with concrete reasons
+- [x] Handle multiple candidate processes deterministically
+
+See `docs/advanced-backend-phase1-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 2: Host-Agent Split And IPC
 

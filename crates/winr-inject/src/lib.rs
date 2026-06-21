@@ -1,3 +1,4 @@
+mod attachment;
 mod discovery;
 
 use tracing::{debug, instrument};
@@ -13,6 +14,7 @@ use winr_types::{
     WinrError, WinrResult,
 };
 
+pub use attachment::AttachmentSupervisor;
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 
 pub trait AdvancedObservationBackend {
