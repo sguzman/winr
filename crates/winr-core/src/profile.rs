@@ -148,17 +148,28 @@ where
             selector: selector.clone(),
         });
 
-        if let Some(window) = resolve_profile_target(profile, options.focus_target)? {
-            info!(
-                hwnd = %window.hwnd,
-                title = %window.title,
-                profile_id = %profile.profile.id,
-                "profile target resolved"
-            );
-            on_event(ProfileRunEvent::TargetAcquired {
-                window: window.clone(),
-            });
-            break window;
+        match resolve_profile_target(profile, options.focus_target) {
+            Ok(Some(window)) => {
+                info!(
+                    hwnd = %window.hwnd,
+                    title = %window.title,
+                    profile_id = %profile.profile.id,
+                    "profile target resolved"
+                );
+                on_event(ProfileRunEvent::TargetAcquired {
+                    window: window.clone(),
+                });
+                break window;
+            }
+            Ok(None) => {}
+            Err(WinrError::Unsupported { message }) => {
+                trace!(
+                    profile_id = %profile.profile.id,
+                    error = %message,
+                    "transient profile target discovery failure treated as not-found while waiting"
+                );
+            }
+            Err(error) => return Err(error),
         }
 
         if options
@@ -373,7 +384,13 @@ fn describe_capability_selection(
 }
 
 fn should_run_live_roblox_workflow(profile: &ProfileConfig) -> bool {
-    profile.execution.backend == AdvancedProfileBackend::Inject && profile.workflow.is_some()
+    profile.execution.backend == AdvancedProfileBackend::Inject
+        && profile.workflow.is_some()
+        && profile
+            .advanced
+            .as_ref()
+            .and_then(|advanced| advanced.roblox.as_ref())
+            .is_some()
 }
 
 fn profile_workflow_tick_interval_ms(profile: &ProfileConfig) -> u64 {

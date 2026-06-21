@@ -624,6 +624,9 @@ pub enum AdvancedHostCommand {
     FetchObservations {
         max_items: u32,
     },
+    ExecuteInput {
+        action: InjectedInputAction,
+    },
     Ping,
 }
 
@@ -642,6 +645,15 @@ pub enum AdvancedHostResponse {
     },
     Observations {
         updates: Vec<AdvancedObservationUpdate>,
+    },
+    RobloxObservations {
+        updates: Vec<AdvancedObservationUpdate>,
+        #[serde(default)]
+        snapshots: Vec<RobloxObservationSnapshot>,
+    },
+    InputOutcome {
+        status: AdvancedCommandAckStatus,
+        detail: String,
     },
     Pong {
         detail: String,
@@ -676,8 +688,10 @@ pub struct AdvancedObservationUpdate {
 #[serde(rename_all = "snake_case")]
 pub enum AdvancedCommandAckStatus {
     Pending,
-    Acked,
+    Accepted,
+    Completed,
     Rejected,
+    TimedOut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -698,6 +712,17 @@ pub struct AdvancedCommandRecord {
     pub command_name: String,
     pub status: AdvancedCommandAckStatus,
     pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InjectedInputAction {
+    MoveForward { duration_ms: u64 },
+    StopMotion,
+    Turn { delta_yaw_milli_degrees: i32 },
+    Interact,
+    Jump,
+    StrafeRight { duration_ms: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -784,6 +809,38 @@ pub struct LiveSessionInspection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxObservationSnapshot {
+    pub frame_id: u64,
+    pub source: String,
+    pub detail: String,
+    pub timestamp_ms: u64,
+    pub freshness_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_position_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_velocity_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_yaw_milli_degrees: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_pitch_milli_degrees: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_distance_millimeters: Option<u32>,
+    #[serde(default)]
+    pub objects: Vec<RobloxObservedObject>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxObservedObject {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub interactable: bool,
+    pub position_millimeters: [i32; 3],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AdvancedAgentEvent {
     Hello {
@@ -810,6 +867,55 @@ pub struct AdvancedAgentEventEnvelope {
     pub session_id: AdvancedSessionId,
     pub sequence: AdvancedSequenceNumber,
     pub event: AdvancedAgentEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxMemorySchema {
+    pub game_build: String,
+    pub schema_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_position: Option<RobloxMemoryField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_velocity: Option<RobloxMemoryField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_yaw_milli_degrees: Option<RobloxMemoryField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_pitch_milli_degrees: Option<RobloxMemoryField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_visible: Option<RobloxMemoryField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_distance_millimeters: Option<RobloxMemoryField>,
+    #[serde(default)]
+    pub objects: Vec<RobloxObjectField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxMemoryField {
+    pub module: String,
+    pub base_offset: usize,
+    #[serde(default)]
+    pub dereference_offsets: Vec<usize>,
+    pub value_kind: RobloxMemoryValueKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxObjectField {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub interactable: bool,
+    pub position: RobloxMemoryField,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RobloxMemoryValueKind {
+    Vec3F32,
+    Vec3I32,
+    I32,
+    U32,
+    F32,
+    U8Bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1356,7 +1462,7 @@ mod tests {
             command_records: vec![AdvancedCommandRecord {
                 command_sequence: AdvancedSequenceNumber(3),
                 command_name: "fetch_observations".to_string(),
-                status: AdvancedCommandAckStatus::Acked,
+                status: AdvancedCommandAckStatus::Completed,
                 detail: "observations delivered".to_string(),
             }],
             observations: vec![AdvancedObservationUpdate {

@@ -1374,6 +1374,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "winr-roblox-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+ "windows",
+ "winr-types",
+]
+
+[[package]]
 name = "winr-types"
 version = "0.1.0"
 dependencies = [

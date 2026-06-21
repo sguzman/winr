@@ -106,6 +106,10 @@ impl AdvancedAgentRuntime for StubAdvancedAgent {
                 let updates = self.observations.drain(0..count).collect();
                 AdvancedHostResponse::Observations { updates }
             }
+            AdvancedHostCommand::ExecuteInput { action } => AdvancedHostResponse::InputOutcome {
+                status: winr_types::AdvancedCommandAckStatus::Completed,
+                detail: format!("stub agent completed {action:?}"),
+            },
             AdvancedHostCommand::Ping => AdvancedHostResponse::Pong {
                 detail: "stub agent alive".to_string(),
             },

@@ -19,7 +19,7 @@ use winr_types::{
     AdvancedCommandAckStatus, AdvancedCommandRecord, AdvancedExecutionReason, AdvancedFrontend,
     AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedHostResponse,
     AdvancedHostResponseEnvelope, AdvancedIpcTransportDescriptor, AdvancedIpcTransportKind,
-    AdvancedProfileBackend, AdvancedProfileExecutionPlan, AdvancedReplayTrace,
+    AdvancedProfileBackend, AdvancedProfileExecutionPlan, AdvancedReplayTrace, InjectedInputAction,
     AdvancedSequenceNumber, AdvancedSessionId, AdvancedStructuredEvent,
     AdvancedStructuredEventKind, MouseInputMode, ProfileConfig, WindowSelector, WinrError,
     WinrResult,
@@ -36,7 +36,7 @@ pub use roblox::{
     run_live_roblox_workflow,
 };
 pub use render::{RenderObservationBackend, StubRenderObserver};
-pub use transport::{AdvancedAgentTransport, InMemoryAgentTransport};
+pub use transport::{AdvancedAgentTransport, InMemoryAgentTransport, NamedPipeAgentTransport};
 
 pub trait AdvancedObservationBackend {
     fn descriptor(&self) -> AdvancedBackendDescriptor;
@@ -338,7 +338,9 @@ impl AdvancedBackendSession {
 
         let response_status = match &envelope.response {
             AdvancedHostResponse::Error { .. } => AdvancedCommandAckStatus::Rejected,
-            _ => AdvancedCommandAckStatus::Acked,
+            AdvancedHostResponse::InputOutcome { status, .. } => *status,
+            AdvancedHostResponse::Ack { .. } => AdvancedCommandAckStatus::Accepted,
+            _ => AdvancedCommandAckStatus::Completed,
         };
         let response_detail = response_detail(&envelope.response);
         let Some(record_index) = self
@@ -365,10 +367,14 @@ impl AdvancedBackendSession {
             envelope.sequence.0,
         );
 
-        if let AdvancedHostResponse::Observations { updates } = &envelope.response {
-            for update in updates {
-                self.record_observation(update.clone(), envelope.sequence.0);
+        match &envelope.response {
+            AdvancedHostResponse::Observations { updates }
+            | AdvancedHostResponse::RobloxObservations { updates, .. } => {
+                for update in updates {
+                    self.record_observation(update.clone(), envelope.sequence.0);
+                }
             }
+            _ => {}
         }
 
         Ok(())
@@ -479,7 +485,12 @@ impl AdvancedBackendSession {
         let acked_command_count = self
             .command_records
             .iter()
-            .filter(|record| record.status == AdvancedCommandAckStatus::Acked)
+            .filter(|record| {
+                matches!(
+                    record.status,
+                    AdvancedCommandAckStatus::Accepted | AdvancedCommandAckStatus::Completed
+                )
+            })
             .count();
         let rejected_command_count = self
             .command_records
@@ -534,10 +545,12 @@ impl AdvancedBackendSession {
         self.record_structured_event(
             match status {
                 AdvancedCommandAckStatus::Pending => AdvancedStructuredEventKind::CommandQueued,
-                AdvancedCommandAckStatus::Acked => {
+                AdvancedCommandAckStatus::Accepted | AdvancedCommandAckStatus::Completed => {
                     AdvancedStructuredEventKind::CommandAcknowledged
                 }
-                AdvancedCommandAckStatus::Rejected => AdvancedStructuredEventKind::Error,
+                AdvancedCommandAckStatus::Rejected | AdvancedCommandAckStatus::TimedOut => {
+                    AdvancedStructuredEventKind::Error
+                }
             },
             detail,
             sequence.0,
@@ -690,6 +703,14 @@ fn host_command_name(command: &AdvancedHostCommand) -> &'static str {
         AdvancedHostCommand::StopProfile { .. } => "stop_profile",
         AdvancedHostCommand::SubscribeEvents => "subscribe_events",
         AdvancedHostCommand::FetchObservations { .. } => "fetch_observations",
+        AdvancedHostCommand::ExecuteInput { action } => match action {
+            InjectedInputAction::MoveForward { .. } => "execute_move_forward",
+            InjectedInputAction::StopMotion => "execute_stop_motion",
+            InjectedInputAction::Turn { .. } => "execute_turn",
+            InjectedInputAction::Interact => "execute_interact",
+            InjectedInputAction::Jump => "execute_jump",
+            InjectedInputAction::StrafeRight { .. } => "execute_strafe_right",
+        },
         AdvancedHostCommand::Ping => "ping",
     }
 }
@@ -705,6 +726,12 @@ fn response_detail(response: &AdvancedHostResponse) -> String {
         AdvancedHostResponse::Capabilities { .. } => "capabilities received".to_string(),
         AdvancedHostResponse::Observations { updates } => {
             format!("observations delivered: {}", updates.len())
+        }
+        AdvancedHostResponse::RobloxObservations { snapshots, .. } => {
+            format!("roblox observations delivered: {}", snapshots.len())
+        }
+        AdvancedHostResponse::InputOutcome { status, detail } => {
+            format!("input outcome {status:?}: {detail}")
         }
         AdvancedHostResponse::Pong { detail } => format!("pong: {detail}"),
         AdvancedHostResponse::Error { error } => format!("error: {}", error.detail),
