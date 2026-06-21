@@ -232,6 +232,57 @@ pub enum AdvancedBackendStability {
     Fragile,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedAgentRole {
+    InputShim,
+    RenderObserver,
+    MemoryObserver,
+    SemanticAdapter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct AdvancedAgentComposition {
+    #[serde(default)]
+    pub roles: Vec<AdvancedAgentRole>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedIpcTransportKind {
+    InProcess,
+    NamedPipe,
+    SharedMemory,
+    TcpLoopback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedPayloadEncoding {
+    Json,
+    Cbor,
+    RawBytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedBinaryPayloadRef {
+    pub payload_id: String,
+    pub encoding: AdvancedPayloadEncoding,
+    pub byte_len: u64,
+    pub transport: AdvancedIpcTransportKind,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedIpcTransportDescriptor {
+    pub kind: AdvancedIpcTransportKind,
+    pub supports_commands: bool,
+    pub supports_events: bool,
+    pub supports_binary_payloads: bool,
+    pub ordered_delivery: bool,
+    pub notes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct AdvancedSessionId(pub u64);
 
@@ -479,6 +530,8 @@ pub struct AdvancedBackendHello {
     pub lifecycle_state: AdvancedBackendLifecycleState,
     pub capabilities: AdvancedBackendCapabilities,
     pub target: AdvancedTargetRef,
+    pub transport: AdvancedIpcTransportDescriptor,
+    pub composition: AdvancedAgentComposition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -492,6 +545,9 @@ pub enum AdvancedBackendErrorKind {
     InvalidStateTransition,
     HandshakeMismatch,
     AttachNotImplemented,
+    TransportClosed,
+    UnsupportedCommand,
+    ResponseMismatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -510,13 +566,59 @@ pub enum AdvancedHostCommand {
         requested_backend: AdvancedProfileBackend,
         target: AdvancedTargetRef,
     },
+    GetCapabilities,
     StartProfile {
         profile_id: String,
     },
     StopProfile {
         profile_id: String,
     },
+    SubscribeEvents,
+    FetchObservations {
+        max_items: u32,
+    },
     Ping,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AdvancedHostResponse {
+    Ack {
+        detail: String,
+    },
+    Hello {
+        hello: AdvancedBackendHello,
+    },
+    Capabilities {
+        capabilities: AdvancedBackendCapabilities,
+        composition: AdvancedAgentComposition,
+    },
+    Observations {
+        updates: Vec<AdvancedObservationUpdate>,
+    },
+    Pong {
+        detail: String,
+    },
+    Error {
+        error: AdvancedBackendError,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedHostResponseEnvelope {
+    pub session_id: AdvancedSessionId,
+    pub sequence: AdvancedSequenceNumber,
+    pub response_to: AdvancedSequenceNumber,
+    pub response: AdvancedHostResponse,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedObservationUpdate {
+    pub frame_id: u64,
+    pub source: String,
+    pub detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<AdvancedBinaryPayloadRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -530,8 +632,7 @@ pub enum AdvancedAgentEvent {
         detail: String,
     },
     ObservationTick {
-        frame_id: u64,
-        detail: String,
+        update: AdvancedObservationUpdate,
     },
 }
 

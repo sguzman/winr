@@ -77,15 +77,17 @@ See `docs/advanced-backend-phase1-decisions.md` for the concrete decisions recor
 
 ## Phase 2: Host-Agent Split And IPC
 
-- [ ] Define a host-agent architecture before adding injected logic to the project
-- [ ] Keep process discovery, policy enforcement, workflow execution, planning, retries, and fallback in the host
-- [ ] Keep low-level observations, low-level or semantic input hooks, internal capability reporting, and state streaming in the injected agent
-- [ ] Define IPC for command requests and responses
-- [ ] Define IPC for event streams and observation updates
+- [x] Define a host-agent architecture before adding injected logic to the project
+- [x] Keep process discovery, policy enforcement, workflow execution, planning, retries, and fallback in the host
+- [x] Keep low-level observations, low-level or semantic input hooks, internal capability reporting, and state streaming in the injected agent
+- [x] Define IPC for command requests and responses
+- [x] Define IPC for event streams and observation updates
 - [x] Add health and version handshake behavior
-- [ ] Support binary payloads when frame transport is needed
+- [x] Support binary payloads when frame transport is needed
 - [x] Version the protocol from the first draft
-- [ ] Avoid assuming render hooks, memory readers, and input shims must always come from the same agent implementation
+- [x] Avoid assuming render hooks, memory readers, and input shims must always come from the same agent implementation
+
+See `docs/advanced-backend-phase2-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 3: Observation Stack
 

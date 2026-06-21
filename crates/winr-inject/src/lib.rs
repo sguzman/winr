@@ -1,21 +1,28 @@
 mod attachment;
+mod agent;
 mod discovery;
+mod host;
+mod transport;
 
 use tracing::{debug, instrument};
 use winr_types::{
-    AdvancedAgentEvent, AdvancedAgentEventEnvelope, AdvancedBackendCapabilities,
-    AdvancedBackendDescriptor, AdvancedBackendError, AdvancedBackendErrorKind,
-    AdvancedBackendHello, AdvancedBackendLifecycleState, AdvancedBackendOptInMode,
-    AdvancedBackendSelection, AdvancedBackendSelectionReason, AdvancedBackendStability,
-    AdvancedCapabilityCatalog, AdvancedCapabilityMatch, AdvancedCapabilityRequirements,
-    AdvancedCapabilitySelection, AdvancedFrontend, AdvancedHostCommand,
-    AdvancedHostCommandEnvelope, AdvancedProfileBackend, AdvancedProfileExecutionPlan,
-    AdvancedSequenceNumber, AdvancedSessionId, MouseInputMode, ProfileConfig, WindowSelector,
-    WinrError, WinrResult,
+    AdvancedAgentComposition, AdvancedAgentEvent, AdvancedAgentEventEnvelope, AdvancedAgentRole,
+    AdvancedBackendCapabilities, AdvancedBackendDescriptor, AdvancedBackendError,
+    AdvancedBackendErrorKind, AdvancedBackendHello, AdvancedBackendLifecycleState,
+    AdvancedBackendOptInMode, AdvancedBackendSelection, AdvancedBackendSelectionReason,
+    AdvancedBackendStability, AdvancedCapabilityCatalog, AdvancedCapabilityMatch,
+    AdvancedCapabilityRequirements, AdvancedCapabilitySelection, AdvancedFrontend,
+    AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedIpcTransportDescriptor,
+    AdvancedIpcTransportKind, AdvancedProfileBackend,
+    AdvancedProfileExecutionPlan, AdvancedSequenceNumber, AdvancedSessionId, MouseInputMode,
+    ProfileConfig, WindowSelector, WinrError, WinrResult,
 };
 
 pub use attachment::AttachmentSupervisor;
+pub use agent::{AdvancedAgentRuntime, StubAdvancedAgent};
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
+pub use host::AdvancedHostRuntime;
+pub use transport::{AdvancedAgentTransport, InMemoryAgentTransport};
 
 pub trait AdvancedObservationBackend {
     fn descriptor(&self) -> AdvancedBackendDescriptor;
@@ -211,6 +218,8 @@ pub fn stub_hello(profile: &ProfileConfig) -> AdvancedBackendHello {
             window_class: profile.target.class_name.clone(),
             title_hint: profile.target.title_contains.clone(),
         },
+        transport: default_transport_descriptor(),
+        composition: default_agent_composition(),
     }
 }
 
@@ -443,6 +452,30 @@ pub fn stub_backend_descriptor() -> AdvancedBackendDescriptor {
     }
 }
 
+pub fn default_transport_descriptor() -> AdvancedIpcTransportDescriptor {
+    AdvancedIpcTransportDescriptor {
+        kind: AdvancedIpcTransportKind::InProcess,
+        supports_commands: true,
+        supports_events: true,
+        supports_binary_payloads: true,
+        ordered_delivery: true,
+        notes: vec![
+            "phase 2 starts with an in-process transport for protocol validation".to_string(),
+            "later transports can swap in named pipes or shared memory without changing the host runtime".to_string(),
+        ],
+    }
+}
+
+pub fn default_agent_composition() -> AdvancedAgentComposition {
+    AdvancedAgentComposition {
+        roles: vec![
+            AdvancedAgentRole::InputShim,
+            AdvancedAgentRole::RenderObserver,
+            AdvancedAgentRole::MemoryObserver,
+        ],
+    }
+}
+
 pub fn foreground_backend_descriptor() -> AdvancedBackendDescriptor {
     AdvancedBackendDescriptor {
         backend: AdvancedProfileBackend::Foreground,
@@ -663,8 +696,12 @@ stop_on_focus_loss = true
                 session_id: session.session_id,
                 sequence: AdvancedSequenceNumber(3),
                 event: AdvancedAgentEvent::ObservationTick {
-                    frame_id: 1,
-                    detail: "frame".to_string(),
+                    update: winr_types::AdvancedObservationUpdate {
+                        frame_id: 1,
+                        source: "stub".to_string(),
+                        detail: "frame".to_string(),
+                        payload: None,
+                    },
                 },
             })
             .expect("first event should succeed");
@@ -674,8 +711,12 @@ stop_on_focus_loss = true
                 session_id: session.session_id,
                 sequence: AdvancedSequenceNumber(2),
                 event: AdvancedAgentEvent::ObservationTick {
-                    frame_id: 2,
-                    detail: "late frame".to_string(),
+                    update: winr_types::AdvancedObservationUpdate {
+                        frame_id: 2,
+                        source: "stub".to_string(),
+                        detail: "late frame".to_string(),
+                        payload: None,
+                    },
                 },
             })
             .unwrap_err();
