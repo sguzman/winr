@@ -1342,6 +1342,7 @@ dependencies = [
  "toml",
  "tracing",
  "windows",
+ "winr-perception",
  "winr-types",
 ]
 

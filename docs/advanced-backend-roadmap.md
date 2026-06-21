@@ -103,14 +103,16 @@ See `docs/advanced-backend-phase3-decisions.md` for the concrete decisions recor
 
 ## Phase 4: Render Observation
 
-- [ ] Treat render observation as one backend, not as the entire advanced architecture
-- [ ] Hook frame presentation or a similar rendering boundary
-- [ ] Extract frame timing and frame availability
-- [ ] Expose sampled image data or analysis hooks
-- [ ] Support overlay or debug visualization in development builds
-- [ ] Use render observation for visible-scene understanding, template or object detection, and action correlation
-- [ ] Avoid treating render observation as a supported game-state API
-- [ ] Avoid treating render observation as a true background input channel
+- [x] Treat render observation as one backend, not as the entire advanced architecture
+- [x] Hook frame presentation or a similar rendering boundary
+- [x] Extract frame timing and frame availability
+- [x] Expose sampled image data or analysis hooks
+- [x] Support overlay or debug visualization in development builds
+- [x] Use render observation for visible-scene understanding, template or object detection, and action correlation
+- [x] Avoid treating render observation as a supported game-state API
+- [x] Avoid treating render observation as a true background input channel
+
+See `docs/advanced-backend-phase4-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 5: Memory And Internal State Observation
 

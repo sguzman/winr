@@ -75,6 +75,26 @@ pub enum ObservationStateVersion {
     V1,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderHookBoundary {
+    DxgiPresent,
+    D3d11Present,
+    D3d12Present,
+    VulkanPresent,
+    OpenGlSwapBuffers,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderSceneUseCase {
+    VisibleSceneUnderstanding,
+    TemplateDetection,
+    ObjectDetection,
+    ActionCorrelation,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DetectorDescriptor {
     pub id: String,
@@ -160,6 +180,65 @@ pub struct DetectorOverlay {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RenderFrameTiming {
+    pub present_timestamp_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_interval_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_latency_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RenderFrameAvailability {
+    pub frame_ready: bool,
+    pub present_count: u64,
+    pub dropped_since_last_capture: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RenderSampleRegion {
+    pub id: String,
+    pub left: u32,
+    pub top: u32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<AdvancedBinaryPayloadRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DebugOverlayCommand {
+    pub label: String,
+    pub kind: OverlayKind,
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RenderDebugOverlaySurface {
+    pub development_only: bool,
+    #[serde(default)]
+    pub commands: Vec<DebugOverlayCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RenderObservationDetails {
+    pub boundary: RenderHookBoundary,
+    pub timing: RenderFrameTiming,
+    pub availability: RenderFrameAvailability,
+    #[serde(default)]
+    pub sample_regions: Vec<RenderSampleRegion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_overlay: Option<RenderDebugOverlaySurface>,
+    #[serde(default)]
+    pub intended_uses: Vec<RenderSceneUseCase>,
+    pub does_not_claim_game_state_api: bool,
+    pub does_not_claim_background_input_channel: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ObservationSourceData {
     DesktopScreenshot {
@@ -203,6 +282,8 @@ pub struct ObservationFrame {
     pub metadata: ObservationMetadata,
     pub source_data: ObservationSourceData,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub render_details: Option<RenderObservationDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub camera_hints: Option<CameraHints>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub player_state_hints: Option<PlayerStateHints>,
@@ -224,6 +305,11 @@ pub trait ObservationFrameSource {
     fn describe_detectors(&self) -> Vec<DetectorDescriptor>;
     fn capture_frame(&mut self, context: &ObservationCaptureContext)
         -> WinrResult<Option<ObservationFrame>>;
+}
+
+pub trait RenderFrameAnalyzer {
+    fn name(&self) -> &str;
+    fn analyze(&self, frame: &ObservationFrame) -> Vec<DetectorOverlay>;
 }
 
 #[derive(Default)]
@@ -271,6 +357,7 @@ impl ObservationFrame {
                 freshness_ms: context.freshness_ms,
             },
             source_data,
+            render_details: None,
             camera_hints: None,
             player_state_hints: None,
             confidence: None,
@@ -301,6 +388,11 @@ impl ObservationFrame {
             entity_average: self.entity_confidence_average(),
             detector_average: None,
         });
+        self
+    }
+
+    pub fn with_render_details(mut self, render_details: RenderObservationDetails) -> Self {
+        self.render_details = Some(render_details);
         self
     }
 }
@@ -434,6 +526,45 @@ mod tests {
                     row_stride_bytes: Some(7680),
                 },
             },
+            render_details: Some(RenderObservationDetails {
+                boundary: RenderHookBoundary::DxgiPresent,
+                timing: RenderFrameTiming {
+                    present_timestamp_ms: 1000,
+                    frame_interval_ms: Some(16),
+                    capture_latency_ms: Some(2),
+                },
+                availability: RenderFrameAvailability {
+                    frame_ready: true,
+                    present_count: 77,
+                    dropped_since_last_capture: 0,
+                },
+                sample_regions: vec![RenderSampleRegion {
+                    id: "center-sample".to_string(),
+                    left: 800,
+                    top: 400,
+                    width: 320,
+                    height: 240,
+                    payload: Some(sample_payload("sample-7")),
+                }],
+                debug_overlay: Some(RenderDebugOverlaySurface {
+                    development_only: true,
+                    commands: vec![DebugOverlayCommand {
+                        label: "target box".to_string(),
+                        kind: OverlayKind::BoundingBoxes,
+                        left: 790,
+                        top: 390,
+                        width: 340,
+                        height: 260,
+                    }],
+                }),
+                intended_uses: vec![
+                    RenderSceneUseCase::VisibleSceneUnderstanding,
+                    RenderSceneUseCase::TemplateDetection,
+                    RenderSceneUseCase::ActionCorrelation,
+                ],
+                does_not_claim_game_state_api: true,
+                does_not_claim_background_input_channel: true,
+            }),
             camera_hints: Some(CameraHints {
                 yaw_degrees: Some(90.0),
                 pitch_degrees: Some(-12.0),
@@ -471,6 +602,7 @@ mod tests {
         assert!(json.contains("\"render_hook_frame\""));
         assert!(json.contains("\"rock-1\""));
         assert!(json.contains("\"camera_hints\""));
+        assert!(json.contains("\"dxgi_present\""));
     }
 
     #[test]
@@ -519,6 +651,7 @@ mod tests {
                     pixel_format: ObservationPixelFormat::Bgra8,
                 },
             },
+            render_details: None,
             camera_hints: None,
             player_state_hints: None,
             confidence: None,
@@ -544,6 +677,7 @@ mod tests {
                     value: "[10,0,-4]".to_string(),
                 }],
             },
+            render_details: None,
             camera_hints: None,
             player_state_hints: Some(PlayerStateHints {
                 world_position: Some([10.0, 0.0, -4.0]),
@@ -588,5 +722,74 @@ mod tests {
         assert!(frames
             .iter()
             .any(|frame| frame.metadata.source == ObservationSourceKind::MemoryState));
+    }
+
+    #[test]
+    fn render_details_capture_boundary_timing_and_limits() {
+        let frame = ObservationFrame::from_update(
+            sample_context(),
+            AdvancedObservationUpdate {
+                frame_id: 55,
+                source: "render-hook".to_string(),
+                detail: "captured at present boundary".to_string(),
+                payload: Some(sample_payload("render-55")),
+            },
+            ObservationSourceData::RenderHookFrame {
+                frame: ObservationFrameHandle {
+                    payload: sample_payload("render-55"),
+                    width: 1280,
+                    height: 720,
+                    pixel_format: ObservationPixelFormat::Bgra8,
+                    row_stride_bytes: Some(5120),
+                },
+            },
+        )
+        .with_render_details(RenderObservationDetails {
+            boundary: RenderHookBoundary::D3d11Present,
+            timing: RenderFrameTiming {
+                present_timestamp_ms: 555,
+                frame_interval_ms: Some(16),
+                capture_latency_ms: Some(3),
+            },
+            availability: RenderFrameAvailability {
+                frame_ready: true,
+                present_count: 10,
+                dropped_since_last_capture: 1,
+            },
+            sample_regions: vec![RenderSampleRegion {
+                id: "ore-cluster".to_string(),
+                left: 200,
+                top: 300,
+                width: 128,
+                height: 128,
+                payload: Some(sample_payload("sample-55")),
+            }],
+            debug_overlay: Some(RenderDebugOverlaySurface {
+                development_only: true,
+                commands: vec![DebugOverlayCommand {
+                    label: "ore highlight".to_string(),
+                    kind: OverlayKind::Heatmap,
+                    left: 180,
+                    top: 280,
+                    width: 180,
+                    height: 180,
+                }],
+            }),
+            intended_uses: vec![
+                RenderSceneUseCase::VisibleSceneUnderstanding,
+                RenderSceneUseCase::ObjectDetection,
+            ],
+            does_not_claim_game_state_api: true,
+            does_not_claim_background_input_channel: true,
+        });
+
+        let details = frame
+            .render_details
+            .expect("render details should be attached");
+        assert_eq!(details.boundary, RenderHookBoundary::D3d11Present);
+        assert_eq!(details.availability.present_count, 10);
+        assert!(details.does_not_claim_game_state_api);
+        assert!(details.does_not_claim_background_input_channel);
+        assert!(details.debug_overlay.expect("overlay should exist").development_only);
     }
 }
