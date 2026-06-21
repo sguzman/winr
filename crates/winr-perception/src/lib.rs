@@ -441,6 +441,42 @@ pub struct ObservationFrame {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationFreshnessStatus {
+    Fresh,
+    Aging,
+    Stale,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ObservationFreshnessPolicy {
+    pub aging_threshold_ms: u64,
+    pub stale_threshold_ms: u64,
+}
+
+impl Default for ObservationFreshnessPolicy {
+    fn default() -> Self {
+        Self {
+            aging_threshold_ms: 33,
+            stale_threshold_ms: 120,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ObservationFreshnessAssessment {
+    pub status: ObservationFreshnessStatus,
+    pub freshness_ms: u64,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ObservationReplayTape {
+    #[serde(default)]
+    pub frames: Vec<ObservationFrame>,
+}
+
 pub trait ObservationFrameSource {
     fn source_kind(&self) -> ObservationSourceKind;
     fn advertised_capabilities(&self) -> AdvancedBackendCapabilities;
@@ -508,8 +544,8 @@ impl ObservationFrame {
                 backend: context.backend,
                 source: source_data.kind(),
                 frame_id: update.frame_id,
-                timestamp_ms: context.timestamp_ms,
-                freshness_ms: context.freshness_ms,
+                timestamp_ms: update.timestamp_ms.unwrap_or(context.timestamp_ms),
+                freshness_ms: update.freshness_ms.unwrap_or(context.freshness_ms),
             },
             source_data,
             render_details: None,
@@ -555,6 +591,65 @@ impl ObservationFrame {
     pub fn with_memory_details(mut self, memory_details: MemoryObservationDetails) -> Self {
         self.memory_details = Some(memory_details);
         self
+    }
+
+    pub fn assess_freshness(
+        &self,
+        policy: &ObservationFreshnessPolicy,
+    ) -> ObservationFreshnessAssessment {
+        let freshness_ms = self.metadata.freshness_ms;
+        let status = if freshness_ms >= policy.stale_threshold_ms {
+            ObservationFreshnessStatus::Stale
+        } else if freshness_ms >= policy.aging_threshold_ms {
+            ObservationFreshnessStatus::Aging
+        } else {
+            ObservationFreshnessStatus::Fresh
+        };
+        let detail = match status {
+            ObservationFreshnessStatus::Fresh => {
+                format!("frame freshness {freshness_ms}ms is within fresh threshold")
+            }
+            ObservationFreshnessStatus::Aging => {
+                format!("frame freshness {freshness_ms}ms is aging toward stale")
+            }
+            ObservationFreshnessStatus::Stale => {
+                format!("frame freshness {freshness_ms}ms exceeded stale threshold")
+            }
+        };
+
+        ObservationFreshnessAssessment {
+            status,
+            freshness_ms,
+            detail,
+        }
+    }
+}
+
+impl ObservationReplayTape {
+    pub fn push(&mut self, frame: ObservationFrame) {
+        self.frames.push(frame);
+    }
+
+    pub fn latest(&self) -> Option<&ObservationFrame> {
+        self.frames.last()
+    }
+
+    pub fn frame(&self, frame_id: u64) -> Option<&ObservationFrame> {
+        self.frames
+            .iter()
+            .find(|frame| frame.metadata.frame_id == frame_id)
+    }
+
+    pub fn stale_frames(&self, policy: &ObservationFreshnessPolicy) -> Vec<&ObservationFrame> {
+        self.frames
+            .iter()
+            .filter(|frame| {
+                matches!(
+                    frame.assess_freshness(policy).status,
+                    ObservationFreshnessStatus::Stale
+                )
+            })
+            .collect()
     }
 }
 
@@ -932,6 +1027,8 @@ mod tests {
                 frame_id: 44,
                 source: "desktop".to_string(),
                 detail: "captured desktop screenshot".to_string(),
+                timestamp_ms: Some(1000),
+                freshness_ms: Some(16),
                 payload: Some(sample_payload("desktop-44")),
             },
             ObservationSourceData::DesktopScreenshot {
@@ -1095,6 +1192,8 @@ mod tests {
                 frame_id: 55,
                 source: "render-hook".to_string(),
                 detail: "captured at present boundary".to_string(),
+                timestamp_ms: Some(555),
+                freshness_ms: Some(12),
                 payload: Some(sample_payload("render-55")),
             },
             ObservationSourceData::RenderHookFrame {
@@ -1169,6 +1268,8 @@ mod tests {
                 frame_id: 66,
                 source: "memory-reader".to_string(),
                 detail: "snapshot captured".to_string(),
+                timestamp_ms: Some(333),
+                freshness_ms: Some(8),
                 payload: None,
             },
             ObservationSourceData::MemoryState {
@@ -1398,5 +1499,64 @@ mod tests {
             .best_entity(EntityKind::VisualMarker)
             .expect("marker should exist");
         assert_eq!(tracked.status, TrackedEntityStatus::Reacquired);
+    }
+
+    #[test]
+    fn freshness_assessment_and_replay_tape_flag_stale_frames() {
+        let fresh = ObservationFrame {
+            target: sample_target(),
+            metadata: ObservationMetadata {
+                version: ObservationStateVersion::V1,
+                backend: AdvancedProfileBackend::Inject,
+                source: ObservationSourceKind::MemoryState,
+                frame_id: 1,
+                timestamp_ms: 1000,
+                freshness_ms: 20,
+            },
+            source_data: ObservationSourceData::MemoryState {
+                snapshot_id: "snap-1".to_string(),
+                state_fields: Vec::new(),
+            },
+            render_details: None,
+            memory_details: None,
+            camera_hints: None,
+            player_state_hints: None,
+            confidence: None,
+            detectors: Vec::new(),
+            detector_overlays: Vec::new(),
+            entities: Vec::new(),
+            notes: Vec::new(),
+        };
+        let stale = ObservationFrame {
+            metadata: ObservationMetadata {
+                frame_id: 2,
+                freshness_ms: 180,
+                ..fresh.metadata.clone()
+            },
+            notes: vec!["late frame".to_string()],
+            ..fresh.clone()
+        };
+        let policy = ObservationFreshnessPolicy::default();
+        let mut tape = ObservationReplayTape::default();
+        tape.push(fresh.clone());
+        tape.push(stale.clone());
+
+        let fresh_assessment = fresh.assess_freshness(&policy);
+        let stale_assessment = stale.assess_freshness(&policy);
+
+        assert_eq!(fresh_assessment.status, ObservationFreshnessStatus::Fresh);
+        assert_eq!(stale_assessment.status, ObservationFreshnessStatus::Stale);
+        assert_eq!(
+            tape.latest()
+                .expect("latest frame should exist")
+                .metadata
+                .frame_id,
+            2
+        );
+        assert_eq!(tape.stale_frames(&policy).len(), 1);
+        assert_eq!(
+            tape.frame(2).expect("frame id 2 should exist").notes[0],
+            "late frame"
+        );
     }
 }

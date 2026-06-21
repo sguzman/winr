@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use winr_perception::{DetectorDescriptor, EntityKind, ObservationFrame, WorldModel};
-use winr_types::{AdvancedBackendCapabilities, AdvancedProfileBackend};
+use winr_types::{AdvancedBackendCapabilities, AdvancedExecutionReason, AdvancedProfileBackend};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1137,6 +1137,38 @@ impl WorkflowExecutionTrace {
             detail: detail.into(),
         });
     }
+
+    pub fn reasoning(&self) -> Option<AdvancedExecutionReason> {
+        let latest = self.events.last()?;
+        let basis = self
+            .events
+            .iter()
+            .rev()
+            .take(3)
+            .map(|event| {
+                format!(
+                    "{}: {}",
+                    workflow_trace_event_kind_name(event.kind),
+                    event.detail
+                )
+            })
+            .collect();
+
+        Some(AdvancedExecutionReason {
+            summary: latest.detail.clone(),
+            basis,
+        })
+    }
+}
+
+fn workflow_trace_event_kind_name(kind: WorkflowTraceEventKind) -> &'static str {
+    match kind {
+        WorkflowTraceEventKind::ObservationAccepted => "observation_accepted",
+        WorkflowTraceEventKind::TaskSelected => "task_selected",
+        WorkflowTraceEventKind::IntentIssued => "intent_issued",
+        WorkflowTraceEventKind::RecoveryTriggered => "recovery_triggered",
+        WorkflowTraceEventKind::PlanBlocked => "plan_blocked",
+    }
 }
 
 #[cfg(test)]
@@ -1966,5 +1998,31 @@ mod tests {
                 Some(SemanticInputAction::Interact)
             ))
         );
+    }
+
+    #[test]
+    fn workflow_trace_produces_operator_facing_reasoning() {
+        let mut trace = WorkflowExecutionTrace::default();
+        trace.push(
+            WorkflowTraceEventKind::ObservationAccepted,
+            "accepted fresh prompt observation",
+        );
+        trace.push(
+            WorkflowTraceEventKind::TaskSelected,
+            "selected wait_for_prompt task",
+        );
+        trace.push(
+            WorkflowTraceEventKind::IntentIssued,
+            "issued interact intent because prompt remained visible",
+        );
+
+        let reasoning = trace.reasoning().expect("reasoning should exist");
+
+        assert_eq!(
+            reasoning.summary,
+            "issued interact intent because prompt remained visible"
+        );
+        assert_eq!(reasoning.basis.len(), 3);
+        assert!(reasoning.basis[0].contains("intent_issued"));
     }
 }

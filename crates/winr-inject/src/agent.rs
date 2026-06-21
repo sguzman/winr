@@ -189,6 +189,8 @@ mod tests {
             frame_id: 10,
             source: "render-hook".to_string(),
             detail: "sample".to_string(),
+            timestamp_ms: Some(100),
+            freshness_ms: Some(16),
             payload: None,
         });
 

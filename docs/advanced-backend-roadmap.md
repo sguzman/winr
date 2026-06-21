@@ -191,14 +191,16 @@ See `docs/advanced-backend-phase10-decisions.md` for the concrete decisions reco
 
 ## Phase 11: Reliability And Observability
 
-- [ ] Add replayable traces of observations and actions
-- [ ] Add structured event logs
-- [ ] Add backend health summaries or dashboards
-- [ ] Add execution reasoning so operators can answer "why did it do that"
-- [ ] Add stale-state detection
-- [ ] Add frame freshness tracking
-- [ ] Add command acknowledgment tracking
-- [ ] Treat observability as a first-class requirement because injected and app-specific backends fail in subtler ways than ordinary Win32 automation
+- [x] Add replayable traces of observations and actions
+- [x] Add structured event logs
+- [x] Add backend health summaries or dashboards
+- [x] Add execution reasoning so operators can answer "why did it do that"
+- [x] Add stale-state detection
+- [x] Add frame freshness tracking
+- [x] Add command acknowledgment tracking
+- [x] Treat observability as a first-class requirement because injected and app-specific backends fail in subtler ways than ordinary Win32 automation
+
+See `docs/advanced-backend-phase11-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 12: User-Facing Integration
 

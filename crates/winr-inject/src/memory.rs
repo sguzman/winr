@@ -131,6 +131,8 @@ impl MemoryObservationBackend for StubMemoryObserver {
                 frame_id: context.frame_id,
                 source: "memory-reader".to_string(),
                 detail: "captured normalized memory snapshot".to_string(),
+                timestamp_ms: Some(context.timestamp_ms),
+                freshness_ms: Some(context.freshness_ms),
                 payload: None,
             },
             ObservationSourceData::MemoryState {

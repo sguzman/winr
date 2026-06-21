@@ -112,6 +112,8 @@ impl RenderObservationBackend for StubRenderObserver {
                 frame_id: context.frame_id,
                 source: "render-hook".to_string(),
                 detail: "captured at render presentation boundary".to_string(),
+                timestamp_ms: Some(context.timestamp_ms),
+                freshness_ms: Some(context.freshness_ms),
                 payload: Some(self.payload("frame", 1920 * 1080 * 4, "render frame pixels")),
             },
             ObservationSourceData::RenderHookFrame {

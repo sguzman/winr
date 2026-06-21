@@ -618,7 +618,88 @@ pub struct AdvancedObservationUpdate {
     pub source: String,
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub freshness_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<AdvancedBinaryPayloadRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedCommandAckStatus {
+    Pending,
+    Acked,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvancedStructuredEventKind {
+    CommandQueued,
+    CommandAcknowledged,
+    ObservationReceived,
+    ObservationStale,
+    LifecycleChanged,
+    Reasoning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedCommandRecord {
+    pub command_sequence: AdvancedSequenceNumber,
+    pub command_name: String,
+    pub status: AdvancedCommandAckStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedExecutionReason {
+    pub summary: String,
+    #[serde(default)]
+    pub basis: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedStructuredEvent {
+    pub sequence: u64,
+    pub timestamp_ms: u64,
+    pub backend: AdvancedProfileBackend,
+    pub kind: AdvancedStructuredEventKind,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedBackendHealthSummary {
+    pub session_id: AdvancedSessionId,
+    pub backend: AdvancedProfileBackend,
+    pub lifecycle_state: AdvancedBackendLifecycleState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_host_sequence: Option<AdvancedSequenceNumber>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_agent_sequence: Option<AdvancedSequenceNumber>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_observation_frame_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_observation_freshness_ms: Option<u64>,
+    pub stale_observation: bool,
+    pub pending_command_count: usize,
+    pub acked_command_count: usize,
+    pub rejected_command_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recent_reason: Option<AdvancedExecutionReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdvancedReplayTrace {
+    pub session_id: AdvancedSessionId,
+    pub target: AdvancedTargetRef,
+    #[serde(default)]
+    pub structured_events: Vec<AdvancedStructuredEvent>,
+    #[serde(default)]
+    pub command_records: Vec<AdvancedCommandRecord>,
+    #[serde(default)]
+    pub observations: Vec<AdvancedObservationUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1171,5 +1252,68 @@ mod tests {
     fn serializes_input_mode() {
         let json = serde_json::to_string(&InputMode::Message).unwrap();
         assert_eq!(json, "\"message\"");
+    }
+
+    #[test]
+    fn serializes_replay_trace_and_health_summary() {
+        let trace = AdvancedReplayTrace {
+            session_id: AdvancedSessionId(7),
+            target: AdvancedTargetRef {
+                hwnd: Some("0x0000000000001234".to_string()),
+                pid: Some(4242),
+                exe: Some("RobloxPlayerBeta.exe".to_string()),
+                window_class: Some("Windows.UI.Core.CoreWindow".to_string()),
+                title_hint: Some("Roblox".to_string()),
+            },
+            structured_events: vec![AdvancedStructuredEvent {
+                sequence: 1,
+                timestamp_ms: 1000,
+                backend: AdvancedProfileBackend::Inject,
+                kind: AdvancedStructuredEventKind::ObservationStale,
+                detail: "frame freshness exceeded threshold".to_string(),
+            }],
+            command_records: vec![AdvancedCommandRecord {
+                command_sequence: AdvancedSequenceNumber(3),
+                command_name: "fetch_observations".to_string(),
+                status: AdvancedCommandAckStatus::Acked,
+                detail: "observations delivered".to_string(),
+            }],
+            observations: vec![AdvancedObservationUpdate {
+                frame_id: 44,
+                source: "render-hook".to_string(),
+                detail: "captured frame".to_string(),
+                timestamp_ms: Some(1000),
+                freshness_ms: Some(160),
+                payload: None,
+            }],
+        };
+        let summary = AdvancedBackendHealthSummary {
+            session_id: AdvancedSessionId(7),
+            backend: AdvancedProfileBackend::Inject,
+            lifecycle_state: AdvancedBackendLifecycleState::Degraded,
+            last_host_sequence: Some(AdvancedSequenceNumber(3)),
+            last_agent_sequence: Some(AdvancedSequenceNumber(9)),
+            last_observation_frame_id: Some(44),
+            last_observation_freshness_ms: Some(160),
+            stale_observation: true,
+            pending_command_count: 0,
+            acked_command_count: 1,
+            rejected_command_count: 0,
+            recent_reason: Some(AdvancedExecutionReason {
+                summary: "stopped issuing movement because state was stale".to_string(),
+                basis: vec![
+                    "last frame freshness was 160ms".to_string(),
+                    "threshold was 120ms".to_string(),
+                ],
+            }),
+        };
+
+        let trace_json = serde_json::to_string(&trace).unwrap();
+        let summary_json = serde_json::to_string(&summary).unwrap();
+
+        assert!(trace_json.contains("\"structured_events\""));
+        assert!(trace_json.contains("\"observation_stale\""));
+        assert!(summary_json.contains("\"stale_observation\":true"));
+        assert!(summary_json.contains("\"recent_reason\""));
     }
 }
