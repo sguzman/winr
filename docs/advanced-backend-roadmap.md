@@ -150,15 +150,17 @@ See `docs/advanced-backend-phase7-decisions.md` for the concrete decisions recor
 
 ## Phase 8: Navigation And Control
 
-- [ ] Build control logic for tasks like "move around this small area outlined by dirt" or "whenever you see this rock, walk up to it"
-- [ ] Implement heading control
-- [ ] Implement movement correction
-- [ ] Implement arrival detection
-- [ ] Implement stuck detection
-- [ ] Implement obstacle or failure recovery
-- [ ] Implement action cancellation
-- [ ] Build reusable controllers for rotate-toward-target, approach-until-threshold, local waypoint following, bounded-region patrol, and no-progress recovery
-- [ ] Support workflow families such as patrol-while-scanning, approach-when-confidence-exceeds-threshold, interact-when-prompt-appears, and resume-patrol-after-interaction
+- [x] Build control logic for tasks like "move around this small area outlined by dirt" or "whenever you see this rock, walk up to it"
+- [x] Implement heading control
+- [x] Implement movement correction
+- [x] Implement arrival detection
+- [x] Implement stuck detection
+- [x] Implement obstacle or failure recovery
+- [x] Implement action cancellation
+- [x] Build reusable controllers for rotate-toward-target, approach-until-threshold, local waypoint following, bounded-region patrol, and no-progress recovery
+- [x] Support workflow families such as patrol-while-scanning, approach-when-confidence-exceeds-threshold, interact-when-prompt-appears, and resume-patrol-after-interaction
+
+See `docs/advanced-backend-phase8-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 9: Workflow DSL
 
@@ -209,7 +211,7 @@ See `docs/advanced-backend-phase7-decisions.md` for the concrete decisions recor
 - [x] Define normalized observation frame model
 - [x] Define semantic input action model
 - [ ] Design workflow DSL v2
-- [ ] Build simple navigation controllers
+- [x] Build simple navigation controllers
 - [ ] Add app-specific packs starting with Roblox
 
 ## Success Criteria

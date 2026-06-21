@@ -151,6 +151,123 @@ pub struct WorkflowExecutionTrace {
     pub events: Vec<WorkflowTraceEvent>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigationControllerKind {
+    RotateTowardTarget,
+    ApproachUntilThreshold,
+    LocalWaypointFollow,
+    BoundedRegionPatrol,
+    NoProgressRecovery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigationDecisionKind {
+    Continue,
+    Arrived,
+    Recovering,
+    Blocked,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NavigationDecision {
+    pub kind: NavigationDecisionKind,
+    #[serde(default)]
+    pub actions: Vec<SemanticInputAction>,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HeadingControlState {
+    pub desired_yaw_milli_degrees: i32,
+    pub current_yaw_milli_degrees: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MovementCorrectionState {
+    pub desired_distance_millimeters: u32,
+    pub current_distance_millimeters: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ArrivalState {
+    pub within_threshold: bool,
+    pub threshold_millimeters: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ProgressSample {
+    pub frame_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_position_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_distance_millimeters: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ControllerMemory {
+    #[serde(default)]
+    pub progress_samples: Vec<ProgressSample>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct NavigationContext {
+    pub world_model: WorldModel,
+    pub frame_id: u64,
+    pub controller_memory: ControllerMemory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NavigationControllerConfig {
+    pub arrival_threshold_millimeters: u32,
+    pub heading_tolerance_milli_degrees: i32,
+    pub move_step_ms: u64,
+    pub turn_step_milli_degrees: i32,
+    pub stuck_distance_epsilon_millimeters: u32,
+    pub stuck_frame_window: usize,
+}
+
+impl Default for NavigationControllerConfig {
+    fn default() -> Self {
+        Self {
+            arrival_threshold_millimeters: 900,
+            heading_tolerance_milli_degrees: 5000,
+            move_step_ms: 150,
+            turn_step_milli_degrees: 12000,
+            stuck_distance_epsilon_millimeters: 80,
+            stuck_frame_window: 3,
+        }
+    }
+}
+
+pub trait NavigationController {
+    fn kind(&self) -> NavigationControllerKind;
+    fn decide(
+        &self,
+        context: &NavigationContext,
+        config: &NavigationControllerConfig,
+    ) -> NavigationDecision;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RotateTowardTargetController;
+
+#[derive(Debug, Clone)]
+pub struct ApproachUntilThresholdController {
+    pub target_entity_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BoundedRegionPatrolController {
+    pub region_entity_id: String,
+    pub waypoint_entity_ids: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoProgressRecoveryController;
+
 pub trait AppWorkflowPack {
     fn manifest(&self) -> AppPackManifest;
     fn supported_tasks(&self) -> Vec<WorkflowTaskDefinition>;
@@ -167,6 +284,315 @@ pub fn select_prioritized_entity_id(
     kind: EntityKind,
 ) -> Option<String> {
     world_model.best_entity(kind).map(|entity| entity.entity.id.clone())
+}
+
+impl NavigationContext {
+    pub fn best_entity_by_kind(
+        &self,
+        kind: EntityKind,
+    ) -> Option<&winr_perception::TrackedObservationEntity> {
+        self.world_model.best_entity(kind)
+    }
+
+    pub fn entity_distance_millimeters(&self, entity_id: &str) -> Option<u32> {
+        self.world_model
+            .entities
+            .iter()
+            .find(|entity| entity.entity.id == entity_id)
+            .and_then(entity_distance_millimeters)
+    }
+
+    pub fn current_yaw_milli_degrees(&self) -> Option<i32> {
+        self.world_model
+            .entities
+            .iter()
+            .find(|entity| entity.entity.kind == EntityKind::Camera)
+            .and_then(|_| None)
+            .or_else(|| {
+                self.world_model
+                    .notes
+                    .iter()
+                    .find_map(|_| None)
+            })
+    }
+}
+
+impl NavigationController for RotateTowardTargetController {
+    fn kind(&self) -> NavigationControllerKind {
+        NavigationControllerKind::RotateTowardTarget
+    }
+
+    fn decide(
+        &self,
+        context: &NavigationContext,
+        config: &NavigationControllerConfig,
+    ) -> NavigationDecision {
+        let Some(camera_yaw) = navigation_camera_yaw(&context.world_model) else {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Blocked,
+                actions: Vec::new(),
+                detail: "camera yaw unavailable for heading control".to_string(),
+            };
+        };
+        let Some(desired_yaw) = navigation_target_yaw(&context.world_model) else {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Blocked,
+                actions: Vec::new(),
+                detail: "target yaw unavailable for heading control".to_string(),
+            };
+        };
+
+        let delta = desired_yaw - camera_yaw;
+        if delta.abs() <= config.heading_tolerance_milli_degrees {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Continue,
+                actions: Vec::new(),
+                detail: "heading already within tolerance".to_string(),
+            };
+        }
+
+        NavigationDecision {
+            kind: NavigationDecisionKind::Continue,
+            actions: vec![SemanticInputAction::Turn {
+                delta_yaw_milli_degrees: delta.signum() * config.turn_step_milli_degrees,
+            }],
+            detail: format!("rotate toward target by correcting yaw delta {delta}"),
+        }
+    }
+}
+
+impl NavigationController for ApproachUntilThresholdController {
+    fn kind(&self) -> NavigationControllerKind {
+        NavigationControllerKind::ApproachUntilThreshold
+    }
+
+    fn decide(
+        &self,
+        context: &NavigationContext,
+        config: &NavigationControllerConfig,
+    ) -> NavigationDecision {
+        let Some(distance) = context.entity_distance_millimeters(&self.target_entity_id) else {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Blocked,
+                actions: Vec::new(),
+                detail: format!("target '{}' is unavailable", self.target_entity_id),
+            };
+        };
+        if distance <= config.arrival_threshold_millimeters {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Arrived,
+                actions: vec![SemanticInputAction::StopMotion],
+                detail: format!(
+                    "arrived within threshold at distance {} mm",
+                    distance
+                ),
+            };
+        }
+
+        NavigationDecision {
+            kind: NavigationDecisionKind::Continue,
+            actions: vec![SemanticInputAction::Approach {
+                target: SemanticInputTarget::EntityId {
+                    entity_id: self.target_entity_id.clone(),
+                },
+            }],
+            detail: format!("approach target '{}' at {} mm", self.target_entity_id, distance),
+        }
+    }
+}
+
+impl NavigationController for BoundedRegionPatrolController {
+    fn kind(&self) -> NavigationControllerKind {
+        NavigationControllerKind::BoundedRegionPatrol
+    }
+
+    fn decide(
+        &self,
+        context: &NavigationContext,
+        config: &NavigationControllerConfig,
+    ) -> NavigationDecision {
+        let Some(region_distance) = context.entity_distance_millimeters(&self.region_entity_id) else {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Blocked,
+                actions: Vec::new(),
+                detail: format!("region '{}' is unavailable", self.region_entity_id),
+            };
+        };
+        if region_distance > config.arrival_threshold_millimeters * 2 {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Continue,
+                actions: vec![SemanticInputAction::WalkTo {
+                    target: SemanticInputTarget::RegionId {
+                        region_id: self.region_entity_id.clone(),
+                    },
+                }],
+                detail: format!(
+                    "return to patrol region '{}' from {} mm away",
+                    self.region_entity_id, region_distance
+                ),
+            };
+        }
+
+        if let Some(next_waypoint) = self
+            .waypoint_entity_ids
+            .iter()
+            .find(|waypoint| context.entity_distance_millimeters(waypoint).is_some())
+        {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Continue,
+                actions: vec![SemanticInputAction::WalkTo {
+                    target: SemanticInputTarget::EntityId {
+                        entity_id: next_waypoint.clone(),
+                    },
+                }],
+                detail: format!("patrol toward waypoint '{}'", next_waypoint),
+            };
+        }
+
+        NavigationDecision {
+            kind: NavigationDecisionKind::Continue,
+            actions: vec![SemanticInputAction::WalkTo {
+                target: SemanticInputTarget::RegionId {
+                    region_id: self.region_entity_id.clone(),
+                },
+            }],
+            detail: format!("patrol inside region '{}'", self.region_entity_id),
+        }
+    }
+}
+
+impl NavigationController for NoProgressRecoveryController {
+    fn kind(&self) -> NavigationControllerKind {
+        NavigationControllerKind::NoProgressRecovery
+    }
+
+    fn decide(
+        &self,
+        context: &NavigationContext,
+        config: &NavigationControllerConfig,
+    ) -> NavigationDecision {
+        if !is_stuck(&context.controller_memory, config) {
+            return NavigationDecision {
+                kind: NavigationDecisionKind::Continue,
+                actions: Vec::new(),
+                detail: "movement progress is still changing".to_string(),
+            };
+        }
+
+        NavigationDecision {
+            kind: NavigationDecisionKind::Recovering,
+            actions: vec![
+                SemanticInputAction::StopMotion,
+                SemanticInputAction::StrafeRight {
+                    duration_ms: config.move_step_ms,
+                },
+                SemanticInputAction::Jump,
+            ],
+            detail: "stuck detected, issuing no-progress recovery sequence".to_string(),
+        }
+    }
+}
+
+pub fn patrol_while_scanning_decision(
+    context: &NavigationContext,
+    patrol: &BoundedRegionPatrolController,
+) -> NavigationDecision {
+    if let Some(target) = context.best_entity_by_kind(EntityKind::Interactable) {
+        return NavigationDecision {
+            kind: NavigationDecisionKind::Continue,
+            actions: vec![SemanticInputAction::Approach {
+                target: SemanticInputTarget::EntityId {
+                    entity_id: target.entity.id.clone(),
+                },
+            }],
+            detail: format!("scan found target '{}', interrupt patrol", target.entity.id),
+        };
+    }
+
+    patrol.decide(context, &NavigationControllerConfig::default())
+}
+
+pub fn interact_when_prompt_appears_decision(context: &NavigationContext) -> NavigationDecision {
+    if let Some(prompt) = context.best_entity_by_kind(EntityKind::Prompt) {
+        return NavigationDecision {
+            kind: NavigationDecisionKind::Continue,
+            actions: vec![SemanticInputAction::Interact],
+            detail: format!("prompt '{}' visible, interact", prompt.entity.id),
+        };
+    }
+
+    NavigationDecision {
+        kind: NavigationDecisionKind::Blocked,
+        actions: Vec::new(),
+        detail: "prompt not visible yet".to_string(),
+    }
+}
+
+pub fn resume_patrol_after_interaction_decision(
+    context: &NavigationContext,
+    patrol: &BoundedRegionPatrolController,
+) -> NavigationDecision {
+    if context.best_entity_by_kind(EntityKind::Prompt).is_none() {
+        return patrol.decide(context, &NavigationControllerConfig::default());
+    }
+
+    NavigationDecision {
+        kind: NavigationDecisionKind::Continue,
+        actions: vec![SemanticInputAction::Interact],
+        detail: "interaction still active, continue interacting".to_string(),
+    }
+}
+
+pub fn is_stuck(memory: &ControllerMemory, config: &NavigationControllerConfig) -> bool {
+    if memory.progress_samples.len() < config.stuck_frame_window {
+        return false;
+    }
+
+    let window = &memory.progress_samples[memory.progress_samples.len() - config.stuck_frame_window..];
+    let Some(first) = window.first().and_then(|sample| sample.target_distance_millimeters) else {
+        return false;
+    };
+    let Some(last) = window.last().and_then(|sample| sample.target_distance_millimeters) else {
+        return false;
+    };
+
+    first.abs_diff(last) <= config.stuck_distance_epsilon_millimeters
+}
+
+fn entity_distance_millimeters(
+    entity: &winr_perception::TrackedObservationEntity,
+) -> Option<u32> {
+    if entity.entity.kind == EntityKind::Prompt {
+        return entity
+            .entity
+            .tags
+            .iter()
+            .find_map(|tag| tag.strip_prefix("distance_mm:"))
+            .and_then(|value| value.parse::<u32>().ok());
+    }
+
+    entity
+        .entity
+        .tags
+        .iter()
+        .find_map(|tag| tag.strip_prefix("distance_mm:"))
+        .and_then(|value| value.parse::<u32>().ok())
+}
+
+fn navigation_camera_yaw(world_model: &WorldModel) -> Option<i32> {
+    world_model
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix("camera_yaw_md:"))
+        .and_then(|value| value.parse::<i32>().ok())
+}
+
+fn navigation_target_yaw(world_model: &WorldModel) -> Option<i32> {
+    world_model
+        .notes
+        .iter()
+        .find_map(|note| note.strip_prefix("target_yaw_md:"))
+        .and_then(|value| value.parse::<i32>().ok())
 }
 
 impl WorkflowIntentDefinition {
@@ -585,5 +1011,204 @@ mod tests {
             .expect("best entity should exist");
 
         assert_eq!(best, "rock-1");
+    }
+
+    fn sample_world_model() -> WorldModel {
+        WorldModel {
+            target: winr_types::AdvancedTargetRef {
+                hwnd: Some("0x0000000000001234".to_string()),
+                pid: Some(42),
+                exe: Some("RobloxPlayerBeta.exe".to_string()),
+                window_class: Some("WINDOWSCLIENT".to_string()),
+                title_hint: Some("Roblox".to_string()),
+            },
+            last_updated_frame_id: 9,
+            detector_kinds: vec![winr_perception::DetectorKind::MemoryEntity],
+            entities: vec![
+                TrackedObservationEntity {
+                    entity: winr_perception::ObservationEntity {
+                        id: "rock-1".to_string(),
+                        kind: EntityKind::Interactable,
+                        label: "Rock".to_string(),
+                        confidence: 0.8,
+                        tags: vec!["resource".to_string(), "distance_mm:1200".to_string()],
+                    },
+                    smoothed_confidence: 0.82,
+                    priority_score: 192,
+                    first_seen_frame_id: 1,
+                    last_seen_frame_id: 9,
+                    missed_frames: 0,
+                    status: TrackedEntityStatus::Active,
+                },
+                TrackedObservationEntity {
+                    entity: winr_perception::ObservationEntity {
+                        id: "dirt-patch-1".to_string(),
+                        kind: EntityKind::Region,
+                        label: "Dirt Patch".to_string(),
+                        confidence: 0.75,
+                        tags: vec!["patrol".to_string(), "distance_mm:600".to_string()],
+                    },
+                    smoothed_confidence: 0.8,
+                    priority_score: 158,
+                    first_seen_frame_id: 1,
+                    last_seen_frame_id: 9,
+                    missed_frames: 0,
+                    status: TrackedEntityStatus::Active,
+                },
+                TrackedObservationEntity {
+                    entity: winr_perception::ObservationEntity {
+                        id: "waypoint-1".to_string(),
+                        kind: EntityKind::Waypoint,
+                        label: "Waypoint".to_string(),
+                        confidence: 0.7,
+                        tags: vec!["distance_mm:500".to_string()],
+                    },
+                    smoothed_confidence: 0.72,
+                    priority_score: 132,
+                    first_seen_frame_id: 1,
+                    last_seen_frame_id: 9,
+                    missed_frames: 0,
+                    status: TrackedEntityStatus::Active,
+                },
+                TrackedObservationEntity {
+                    entity: winr_perception::ObservationEntity {
+                        id: "prompt-1".to_string(),
+                        kind: EntityKind::Prompt,
+                        label: "Press E".to_string(),
+                        confidence: 0.9,
+                        tags: vec!["priority".to_string(), "distance_mm:700".to_string()],
+                    },
+                    smoothed_confidence: 0.91,
+                    priority_score: 221,
+                    first_seen_frame_id: 1,
+                    last_seen_frame_id: 9,
+                    missed_frames: 0,
+                    status: TrackedEntityStatus::Active,
+                },
+            ],
+            notes: vec![
+                "camera_yaw_md:10000".to_string(),
+                "target_yaw_md:30000".to_string(),
+            ],
+        }
+    }
+
+    #[test]
+    fn approach_controller_arrives_and_stops_when_close() {
+        let mut world_model = sample_world_model();
+        if let Some(rock) = world_model.entities.iter_mut().find(|entity| entity.entity.id == "rock-1") {
+            rock.entity.tags = vec!["distance_mm:600".to_string()];
+        }
+        let controller = ApproachUntilThresholdController {
+            target_entity_id: "rock-1".to_string(),
+        };
+        let context = NavigationContext {
+            world_model,
+            frame_id: 10,
+            controller_memory: ControllerMemory::default(),
+        };
+
+        let decision = controller.decide(&context, &NavigationControllerConfig::default());
+
+        assert_eq!(decision.kind, NavigationDecisionKind::Arrived);
+        assert_eq!(decision.actions, vec![SemanticInputAction::StopMotion]);
+    }
+
+    #[test]
+    fn rotate_controller_requests_heading_correction() {
+        let controller = RotateTowardTargetController;
+        let context = NavigationContext {
+            world_model: sample_world_model(),
+            frame_id: 10,
+            controller_memory: ControllerMemory::default(),
+        };
+
+        let decision = controller.decide(&context, &NavigationControllerConfig::default());
+
+        assert_eq!(decision.kind, NavigationDecisionKind::Continue);
+        assert!(matches!(
+            decision.actions[0],
+            SemanticInputAction::Turn { .. }
+        ));
+    }
+
+    #[test]
+    fn bounded_patrol_controller_walks_region_or_waypoint() {
+        let controller = BoundedRegionPatrolController {
+            region_entity_id: "dirt-patch-1".to_string(),
+            waypoint_entity_ids: vec!["waypoint-1".to_string()],
+        };
+        let context = NavigationContext {
+            world_model: sample_world_model(),
+            frame_id: 10,
+            controller_memory: ControllerMemory::default(),
+        };
+
+        let decision = controller.decide(&context, &NavigationControllerConfig::default());
+
+        assert_eq!(decision.kind, NavigationDecisionKind::Continue);
+        assert!(matches!(
+            decision.actions[0],
+            SemanticInputAction::WalkTo { .. }
+        ));
+    }
+
+    #[test]
+    fn no_progress_recovery_detects_stuck_and_recovers() {
+        let controller = NoProgressRecoveryController;
+        let context = NavigationContext {
+            world_model: sample_world_model(),
+            frame_id: 10,
+            controller_memory: ControllerMemory {
+                progress_samples: vec![
+                    ProgressSample {
+                        frame_id: 7,
+                        player_position_millimeters: Some([0, 0, 0]),
+                        target_distance_millimeters: Some(1200),
+                    },
+                    ProgressSample {
+                        frame_id: 8,
+                        player_position_millimeters: Some([10, 0, 0]),
+                        target_distance_millimeters: Some(1180),
+                    },
+                    ProgressSample {
+                        frame_id: 9,
+                        player_position_millimeters: Some([12, 0, 0]),
+                        target_distance_millimeters: Some(1175),
+                    },
+                ],
+            },
+        };
+        let config = NavigationControllerConfig {
+            stuck_distance_epsilon_millimeters: 40,
+            ..Default::default()
+        };
+
+        let decision = controller.decide(&context, &config);
+
+        assert_eq!(decision.kind, NavigationDecisionKind::Recovering);
+        assert_eq!(decision.actions.len(), 3);
+    }
+
+    #[test]
+    fn prompt_and_patrol_workflow_helpers_switch_modes() {
+        let patrol = BoundedRegionPatrolController {
+            region_entity_id: "dirt-patch-1".to_string(),
+            waypoint_entity_ids: vec!["waypoint-1".to_string()],
+        };
+        let context = NavigationContext {
+            world_model: sample_world_model(),
+            frame_id: 10,
+            controller_memory: ControllerMemory::default(),
+        };
+
+        let scan_decision = patrol_while_scanning_decision(&context, &patrol);
+        let interact_decision = interact_when_prompt_appears_decision(&context);
+
+        assert!(matches!(
+            scan_decision.actions[0],
+            SemanticInputAction::Approach { .. }
+        ));
+        assert_eq!(interact_decision.actions, vec![SemanticInputAction::Interact]);
     }
 }
