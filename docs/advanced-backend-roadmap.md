@@ -127,11 +127,13 @@ See `docs/advanced-backend-phase5-decisions.md` for the concrete decisions recor
 
 ## Phase 6: Input Stack
 
-- [ ] Define layered input sinks including Win32 foreground input, message-based background input, injected raw input shim, and semantic internal action calls
-- [ ] Make the workflow engine prefer semantic actions over raw input spam when available
-- [ ] Define candidate semantic actions such as `move_forward(duration)`, `move_backward(duration)`, `strafe_left(duration)`, `strafe_right(duration)`, `turn(delta_yaw)`, `look_pitch(delta_pitch)`, `jump()`, `interact()`, `hold(action, until)`, `stop_motion()`, `approach(target)`, and `walk_to(region_or_entity)`
-- [ ] Shift profiles and workflows toward intent instead of raw keystroke loops
-- [ ] Let each backend decide how intents map to raw keys, mouse deltas, or internal actions
+- [x] Define layered input sinks including Win32 foreground input, message-based background input, injected raw input shim, and semantic internal action calls
+- [x] Make the workflow engine prefer semantic actions over raw input spam when available
+- [x] Define candidate semantic actions such as `move_forward(duration)`, `move_backward(duration)`, `strafe_left(duration)`, `strafe_right(duration)`, `turn(delta_yaw)`, `look_pitch(delta_pitch)`, `jump()`, `interact()`, `hold(action, until)`, `stop_motion()`, `approach(target)`, and `walk_to(region_or_entity)`
+- [x] Shift profiles and workflows toward intent instead of raw keystroke loops
+- [x] Let each backend decide how intents map to raw keys, mouse deltas, or internal actions
+
+See `docs/advanced-backend-phase6-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 7: Perception And Entity Model
 
@@ -203,7 +205,7 @@ See `docs/advanced-backend-phase5-decisions.md` for the concrete decisions recor
 - [x] Define advanced backend traits and lifecycle contracts
 - [x] Define host-agent split and protocol
 - [x] Define normalized observation frame model
-- [ ] Define semantic input action model
+- [x] Define semantic input action model
 - [ ] Design workflow DSL v2
 - [ ] Build simple navigation controllers
 - [ ] Add app-specific packs starting with Roblox

@@ -14,4 +14,5 @@ toml.workspace = true
 tracing.workspace = true
 windows.workspace = true
 winr-perception = { path = "../winr-perception" }
+winr-workflows = { path = "../winr-workflows" }
 winr-types = { path = "../winr-types" }

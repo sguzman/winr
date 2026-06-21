@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use winr_perception::{DetectorDescriptor, EntityKind, ObservationFrame};
-use winr_types::AdvancedProfileBackend;
+use winr_types::{AdvancedBackendCapabilities, AdvancedProfileBackend};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -31,6 +31,59 @@ pub enum WorkflowIntentKind {
     WalkToRegionOrEntity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InputSinkKind {
+    Win32Foreground,
+    Win32Message,
+    InjectedRawInput,
+    SemanticInternalAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticInputTarget {
+    CurrentTarget,
+    EntityId { entity_id: String },
+    RegionId { region_id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticInputAction {
+    MoveForward { duration_ms: u64 },
+    MoveBackward { duration_ms: u64 },
+    StrafeLeft { duration_ms: u64 },
+    StrafeRight { duration_ms: u64 },
+    Turn { delta_yaw_milli_degrees: i32 },
+    LookPitch { delta_pitch_milli_degrees: i32 },
+    Jump,
+    Interact,
+    Hold { action: String, duration_ms: u64 },
+    StopMotion,
+    Approach { target: SemanticInputTarget },
+    WalkTo { target: SemanticInputTarget },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InputSinkPreference {
+    #[serde(default)]
+    pub ordered_sinks: Vec<InputSinkKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InputSinkMapping {
+    pub sink: InputSinkKind,
+    pub action: SemanticInputAction,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowInputPlan {
+    #[serde(default)]
+    pub mappings: Vec<InputSinkMapping>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WorkflowTaskDefinition {
     pub id: String,
@@ -42,6 +95,10 @@ pub struct WorkflowTaskDefinition {
 pub struct WorkflowIntentDefinition {
     pub kind: WorkflowIntentKind,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_action: Option<SemanticInputAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sink_preference: Option<InputSinkPreference>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -103,6 +160,118 @@ pub trait AppWorkflowPack {
 pub trait WorkflowPlanner {
     fn can_plan(&self, frame: &ObservationFrame) -> bool;
     fn plan(&self, frame: &ObservationFrame, task: WorkflowTaskKind) -> Option<WorkflowPlan>;
+}
+
+impl WorkflowIntentDefinition {
+    pub fn into_input_mapping(
+        &self,
+        capabilities: &AdvancedBackendCapabilities,
+    ) -> Option<InputSinkMapping> {
+        let action = self.semantic_action.clone()?;
+        let sink = preferred_input_sink(capabilities, self.sink_preference.as_ref(), &action)?;
+        Some(InputSinkMapping {
+            sink,
+            action,
+            detail: self.description.clone(),
+        })
+    }
+}
+
+impl WorkflowPlan {
+    pub fn resolve_input_plan(
+        &self,
+        capabilities: &AdvancedBackendCapabilities,
+    ) -> WorkflowInputPlan {
+        WorkflowInputPlan {
+            mappings: self
+                .intents
+                .iter()
+                .filter_map(|intent| intent.into_input_mapping(capabilities))
+                .collect(),
+        }
+    }
+}
+
+pub fn preferred_input_sink(
+    capabilities: &AdvancedBackendCapabilities,
+    preference: Option<&InputSinkPreference>,
+    action: &SemanticInputAction,
+) -> Option<InputSinkKind> {
+    let ordered = preference
+        .map(|value| value.ordered_sinks.clone())
+        .unwrap_or_else(|| default_sink_order(capabilities, action));
+
+    ordered
+        .into_iter()
+        .find(|sink| sink_supports_action(*sink, capabilities, action))
+}
+
+fn default_sink_order(
+    capabilities: &AdvancedBackendCapabilities,
+    action: &SemanticInputAction,
+) -> Vec<InputSinkKind> {
+    let mut sinks = Vec::new();
+
+    if is_semantic_preferred_action(action) && capabilities.internal_interaction {
+        sinks.push(InputSinkKind::SemanticInternalAction);
+    }
+    if is_semantic_navigation_action(action) && capabilities.semantic_navigation {
+        sinks.push(InputSinkKind::SemanticInternalAction);
+    }
+    if capabilities.injected_input {
+        sinks.push(InputSinkKind::InjectedRawInput);
+    }
+    if capabilities.message_input {
+        sinks.push(InputSinkKind::Win32Message);
+    }
+    if capabilities.foreground_input {
+        sinks.push(InputSinkKind::Win32Foreground);
+    }
+
+    sinks
+}
+
+fn sink_supports_action(
+    sink: InputSinkKind,
+    capabilities: &AdvancedBackendCapabilities,
+    action: &SemanticInputAction,
+) -> bool {
+    match sink {
+        InputSinkKind::SemanticInternalAction => {
+            (is_semantic_navigation_action(action) && capabilities.semantic_navigation)
+                || (is_semantic_preferred_action(action) && capabilities.internal_interaction)
+        }
+        InputSinkKind::InjectedRawInput => capabilities.injected_input,
+        InputSinkKind::Win32Message => capabilities.message_input && is_message_safe_action(action),
+        InputSinkKind::Win32Foreground => capabilities.foreground_input,
+    }
+}
+
+fn is_semantic_navigation_action(action: &SemanticInputAction) -> bool {
+    matches!(
+        action,
+        SemanticInputAction::Approach { .. } | SemanticInputAction::WalkTo { .. }
+    )
+}
+
+fn is_semantic_preferred_action(action: &SemanticInputAction) -> bool {
+    matches!(
+        action,
+        SemanticInputAction::Approach { .. }
+            | SemanticInputAction::WalkTo { .. }
+            | SemanticInputAction::Interact
+            | SemanticInputAction::StopMotion
+    )
+}
+
+fn is_message_safe_action(action: &SemanticInputAction) -> bool {
+    matches!(
+        action,
+        SemanticInputAction::Jump
+            | SemanticInputAction::Interact
+            | SemanticInputAction::Hold { .. }
+            | SemanticInputAction::StopMotion
+    )
 }
 
 impl AppPackRegistry {
@@ -172,6 +341,18 @@ mod tests {
                 intents: vec![WorkflowIntentDefinition {
                     kind: WorkflowIntentKind::ApproachTarget,
                     description: "move toward the detected target".to_string(),
+                    semantic_action: Some(SemanticInputAction::Approach {
+                        target: SemanticInputTarget::EntityId {
+                            entity_id: "rock-1".to_string(),
+                        },
+                    }),
+                    sink_preference: Some(InputSinkPreference {
+                        ordered_sinks: vec![
+                            InputSinkKind::SemanticInternalAction,
+                            InputSinkKind::InjectedRawInput,
+                            InputSinkKind::Win32Foreground,
+                        ],
+                    }),
                 }],
             })
         }
@@ -293,5 +474,55 @@ mod tests {
 
         assert_eq!(desktop_plan.task.id, render_plan.task.id);
         assert_eq!(desktop_plan.required_entity_kinds, render_plan.required_entity_kinds);
+    }
+
+    #[test]
+    fn workflow_plan_prefers_semantic_actions_when_available() {
+        let plan = RobloxPack
+            .default_plan(WorkflowTaskKind::Approach)
+            .expect("approach plan should exist");
+        let input_plan = plan.resolve_input_plan(&AdvancedBackendCapabilities {
+            injected_input: true,
+            semantic_navigation: true,
+            internal_interaction: true,
+            foreground_input: true,
+            ..Default::default()
+        });
+
+        assert_eq!(input_plan.mappings.len(), 1);
+        assert_eq!(
+            input_plan.mappings[0].sink,
+            InputSinkKind::SemanticInternalAction
+        );
+        assert!(matches!(
+            input_plan.mappings[0].action,
+            SemanticInputAction::Approach { .. }
+        ));
+    }
+
+    #[test]
+    fn workflow_plan_falls_back_to_injected_then_foreground() {
+        let intent = WorkflowIntentDefinition {
+            kind: WorkflowIntentKind::MoveForward,
+            description: "move forward briefly".to_string(),
+            semantic_action: Some(SemanticInputAction::MoveForward { duration_ms: 250 }),
+            sink_preference: None,
+        };
+
+        let injected = intent
+            .into_input_mapping(&AdvancedBackendCapabilities {
+                injected_input: true,
+                ..Default::default()
+            })
+            .expect("injected fallback should resolve");
+        assert_eq!(injected.sink, InputSinkKind::InjectedRawInput);
+
+        let foreground = intent
+            .into_input_mapping(&AdvancedBackendCapabilities {
+                foreground_input: true,
+                ..Default::default()
+            })
+            .expect("foreground fallback should resolve");
+        assert_eq!(foreground.sink, InputSinkKind::Win32Foreground);
     }
 }
