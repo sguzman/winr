@@ -95,6 +95,22 @@ pub enum RenderSceneUseCase {
     ActionCorrelation,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MemorySchemaVersion {
+    V1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryObservationUseCase {
+    PlayerState,
+    CameraState,
+    InteractableDiscovery,
+    PromptState,
+    ObjectInventory,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DetectorDescriptor {
     pub id: String,
@@ -168,6 +184,70 @@ pub struct ObservationFrameHandle {
 pub struct ObservationStateField {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryCameraState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaw_milli_degrees: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pitch_milli_degrees: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_of_view_milli_degrees: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryPlayerState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub world_position_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub velocity_millimeters_per_second: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub movement_state: Option<ObservationMovementState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tool: Option<String>,
+    #[serde(default)]
+    pub active_modes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryPromptState {
+    pub id: String,
+    pub label: String,
+    pub visible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance_millimeters: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryObjectState {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub world_position_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance_millimeters: Option<u32>,
+    pub interactable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MemoryObservationDetails {
+    pub schema_version: MemorySchemaVersion,
+    pub snapshot_id: String,
+    #[serde(default)]
+    pub intended_uses: Vec<MemoryObservationUseCase>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_state: Option<MemoryPlayerState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_state: Option<MemoryCameraState>,
+    #[serde(default)]
+    pub prompts: Vec<MemoryPromptState>,
+    #[serde(default)]
+    pub nearby_objects: Vec<MemoryObjectState>,
+    pub raw_layout_hidden: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -284,6 +364,8 @@ pub struct ObservationFrame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_details: Option<RenderObservationDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_details: Option<MemoryObservationDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub camera_hints: Option<CameraHints>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub player_state_hints: Option<PlayerStateHints>,
@@ -310,6 +392,11 @@ pub trait ObservationFrameSource {
 pub trait RenderFrameAnalyzer {
     fn name(&self) -> &str;
     fn analyze(&self, frame: &ObservationFrame) -> Vec<DetectorOverlay>;
+}
+
+pub trait MemoryStateProjector {
+    fn name(&self) -> &str;
+    fn project_entities(&self, frame: &ObservationFrame) -> Vec<ObservationEntity>;
 }
 
 #[derive(Default)]
@@ -358,6 +445,7 @@ impl ObservationFrame {
             },
             source_data,
             render_details: None,
+            memory_details: None,
             camera_hints: None,
             player_state_hints: None,
             confidence: None,
@@ -393,6 +481,11 @@ impl ObservationFrame {
 
     pub fn with_render_details(mut self, render_details: RenderObservationDetails) -> Self {
         self.render_details = Some(render_details);
+        self
+    }
+
+    pub fn with_memory_details(mut self, memory_details: MemoryObservationDetails) -> Self {
+        self.memory_details = Some(memory_details);
         self
     }
 }
@@ -565,6 +658,7 @@ mod tests {
                 does_not_claim_game_state_api: true,
                 does_not_claim_background_input_channel: true,
             }),
+            memory_details: None,
             camera_hints: Some(CameraHints {
                 yaw_degrees: Some(90.0),
                 pitch_degrees: Some(-12.0),
@@ -652,6 +746,7 @@ mod tests {
                 },
             },
             render_details: None,
+            memory_details: None,
             camera_hints: None,
             player_state_hints: None,
             confidence: None,
@@ -678,6 +773,42 @@ mod tests {
                 }],
             },
             render_details: None,
+            memory_details: Some(MemoryObservationDetails {
+                schema_version: MemorySchemaVersion::V1,
+                snapshot_id: "snap-2".to_string(),
+                intended_uses: vec![
+                    MemoryObservationUseCase::PlayerState,
+                    MemoryObservationUseCase::InteractableDiscovery,
+                ],
+                player_state: Some(MemoryPlayerState {
+                    world_position_millimeters: Some([10000, 0, -4000]),
+                    velocity_millimeters_per_second: Some([500, 0, 0]),
+                    movement_state: Some(ObservationMovementState::Walking),
+                    active_tool: Some("pickaxe".to_string()),
+                    active_modes: vec!["harvesting".to_string()],
+                }),
+                camera_state: Some(MemoryCameraState {
+                    yaw_milli_degrees: Some(90000),
+                    pitch_milli_degrees: Some(-12000),
+                    field_of_view_milli_degrees: Some(70000),
+                    mode: Some("third_person".to_string()),
+                }),
+                prompts: vec![MemoryPromptState {
+                    id: "prompt-1".to_string(),
+                    label: "Press E".to_string(),
+                    visible: true,
+                    distance_millimeters: Some(900),
+                }],
+                nearby_objects: vec![MemoryObjectState {
+                    id: "rock-1".to_string(),
+                    kind: "resource_node".to_string(),
+                    label: "Rock".to_string(),
+                    world_position_millimeters: Some([10800, 0, -3900]),
+                    distance_millimeters: Some(1200),
+                    interactable: true,
+                }],
+                raw_layout_hidden: true,
+            }),
             camera_hints: None,
             player_state_hints: Some(PlayerStateHints {
                 world_position: Some([10.0, 0.0, -4.0]),
@@ -791,5 +922,76 @@ mod tests {
         assert!(details.does_not_claim_game_state_api);
         assert!(details.does_not_claim_background_input_channel);
         assert!(details.debug_overlay.expect("overlay should exist").development_only);
+    }
+
+    #[test]
+    fn memory_details_version_and_normalized_state_are_preserved() {
+        let frame = ObservationFrame::from_update(
+            sample_context(),
+            AdvancedObservationUpdate {
+                frame_id: 66,
+                source: "memory-reader".to_string(),
+                detail: "snapshot captured".to_string(),
+                payload: None,
+            },
+            ObservationSourceData::MemoryState {
+                snapshot_id: "snap-66".to_string(),
+                state_fields: vec![
+                    ObservationStateField {
+                        key: "player.position".to_string(),
+                        value: "[10,0,-4]".to_string(),
+                    },
+                    ObservationStateField {
+                        key: "prompt.visible".to_string(),
+                        value: "true".to_string(),
+                    },
+                ],
+            },
+        )
+        .with_memory_details(MemoryObservationDetails {
+            schema_version: MemorySchemaVersion::V1,
+            snapshot_id: "snap-66".to_string(),
+            intended_uses: vec![
+                MemoryObservationUseCase::PlayerState,
+                MemoryObservationUseCase::PromptState,
+                MemoryObservationUseCase::ObjectInventory,
+            ],
+            player_state: Some(MemoryPlayerState {
+                world_position_millimeters: Some([10000, 0, -4000]),
+                velocity_millimeters_per_second: Some([0, 0, 0]),
+                movement_state: Some(ObservationMovementState::Idle),
+                active_tool: Some("pickaxe".to_string()),
+                active_modes: vec!["harvesting".to_string()],
+            }),
+            camera_state: Some(MemoryCameraState {
+                yaw_milli_degrees: Some(90000),
+                pitch_milli_degrees: Some(-10000),
+                field_of_view_milli_degrees: Some(70000),
+                mode: Some("third_person".to_string()),
+            }),
+            prompts: vec![MemoryPromptState {
+                id: "ore-prompt".to_string(),
+                label: "Press E".to_string(),
+                visible: true,
+                distance_millimeters: Some(850),
+            }],
+            nearby_objects: vec![MemoryObjectState {
+                id: "ore-rock".to_string(),
+                kind: "resource_node".to_string(),
+                label: "Ore Rock".to_string(),
+                world_position_millimeters: Some([10800, 0, -3900]),
+                distance_millimeters: Some(1200),
+                interactable: true,
+            }],
+            raw_layout_hidden: true,
+        });
+
+        let details = frame
+            .memory_details
+            .expect("memory details should be attached");
+        assert_eq!(details.schema_version, MemorySchemaVersion::V1);
+        assert!(details.raw_layout_hidden);
+        assert_eq!(details.prompts.len(), 1);
+        assert_eq!(details.nearby_objects[0].kind, "resource_node");
     }
 }

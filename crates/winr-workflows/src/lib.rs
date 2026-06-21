@@ -236,6 +236,7 @@ mod tests {
                 }
             },
             render_details: None,
+            memory_details: None,
             camera_hints: None,
             player_state_hints: None,
             confidence: None,

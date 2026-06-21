@@ -116,12 +116,14 @@ See `docs/advanced-backend-phase4-decisions.md` for the concrete decisions recor
 
 ## Phase 5: Memory And Internal State Observation
 
-- [ ] Build a separate state-reading layer for targets that need richer automation than visual heuristics alone
-- [ ] Support potential signals such as player position, camera orientation, movement state, active tool or mode, nearby interactables, prompt state, and object lists
-- [ ] Keep memory-backed state optional
-- [ ] Version observations so changes can be detected across target updates
-- [ ] Prevent workflow code from depending directly on raw offsets or raw memory layouts
-- [ ] Translate low-level state into stable internal DTOs first
+- [x] Build a separate state-reading layer for targets that need richer automation than visual heuristics alone
+- [x] Support potential signals such as player position, camera orientation, movement state, active tool or mode, nearby interactables, prompt state, and object lists
+- [x] Keep memory-backed state optional
+- [x] Version observations so changes can be detected across target updates
+- [x] Prevent workflow code from depending directly on raw offsets or raw memory layouts
+- [x] Translate low-level state into stable internal DTOs first
+
+See `docs/advanced-backend-phase5-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 6: Input Stack
 

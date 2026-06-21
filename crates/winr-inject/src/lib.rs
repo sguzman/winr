@@ -2,6 +2,7 @@ mod attachment;
 mod agent;
 mod discovery;
 mod host;
+mod memory;
 mod render;
 mod transport;
 
@@ -23,6 +24,7 @@ pub use attachment::AttachmentSupervisor;
 pub use agent::{AdvancedAgentRuntime, StubAdvancedAgent};
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 pub use host::AdvancedHostRuntime;
+pub use memory::{MemoryObservationBackend, StubMemoryObserver};
 pub use render::{RenderObservationBackend, StubRenderObserver};
 pub use transport::{AdvancedAgentTransport, InMemoryAgentTransport};
 
