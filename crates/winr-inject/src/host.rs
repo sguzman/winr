@@ -3,8 +3,9 @@ use winr_types::{
 };
 
 use crate::{
-    advanced_error, discover_profile_targets, prepare_profile_backend, resolve_attachable_target,
-    selector_into_target_ref, AdvancedBackendSession, AdvancedAgentTransport, AttachmentSupervisor,
+    AdvancedAgentTransport, AdvancedBackendSession, AttachmentSupervisor, advanced_error,
+    discover_profile_targets, prepare_profile_backend, resolve_attachable_target,
+    selector_into_target_ref,
 };
 
 #[derive(Debug)]

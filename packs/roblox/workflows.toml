@@ -1,0 +1,155 @@
+[[tasks]]
+id = "roblox-harvest-rock"
+kind = "approach"
+
+[tasks.backend_preference]
+preferred_backends = ["inject"]
+
+[[tasks.detectors]]
+kind = "template_match"
+detector_id = "resource-rock-template"
+entity_kind = "interactable"
+
+[[tasks.action_graph]]
+id = "detect-rock"
+name = "Detect Rock"
+kind = "detect"
+next = ["approach-rock"]
+
+[tasks.action_graph.retry]
+max_attempts = 3
+cooldown_ms = 200
+
+[[tasks.action_graph.steps]]
+kind = "detector"
+
+[tasks.action_graph.steps.detector]
+kind = "template_match"
+detector_id = "resource-rock-template"
+entity_kind = "interactable"
+
+[[tasks.action_graph.steps]]
+kind = "condition"
+
+[tasks.action_graph.steps.condition]
+entity_kind = "interactable"
+operator = "exists"
+
+[[tasks.action_graph]]
+id = "approach-rock"
+name = "Approach Rock"
+kind = "act"
+next = ["complete-approach"]
+
+[[tasks.action_graph.steps]]
+kind = "action"
+
+[tasks.action_graph.steps.action]
+kind = "approach"
+
+[tasks.action_graph.steps.action.target]
+kind = "current_target"
+
+[[tasks.action_graph]]
+id = "complete-approach"
+name = "Complete Approach"
+kind = "complete"
+
+[[tasks]]
+id = "roblox-patrol-dirt-region"
+kind = "patrol_region"
+
+[tasks.backend_preference]
+preferred_backends = ["inject"]
+
+[[tasks.detectors]]
+kind = "memory_entity"
+detector_id = "dirt-region-memory"
+entity_kind = "region"
+
+[[tasks.action_graph]]
+id = "find-region"
+name = "Find Region"
+kind = "detect"
+next = ["patrol-region"]
+
+[[tasks.action_graph.steps]]
+kind = "detector"
+
+[tasks.action_graph.steps.detector]
+kind = "memory_entity"
+detector_id = "dirt-region-memory"
+entity_kind = "region"
+
+[[tasks.action_graph.steps]]
+kind = "condition"
+
+[tasks.action_graph.steps.condition]
+entity_kind = "region"
+operator = "exists"
+
+[[tasks.action_graph]]
+id = "patrol-region"
+name = "Patrol Region"
+kind = "act"
+next = ["complete-patrol"]
+
+[[tasks.action_graph.steps]]
+kind = "action"
+
+[tasks.action_graph.steps.action]
+kind = "walk_to"
+
+[tasks.action_graph.steps.action.target]
+kind = "region_id"
+region_id = "dirt-region-memory"
+
+[[tasks.action_graph]]
+id = "complete-patrol"
+name = "Complete Patrol"
+kind = "complete"
+
+[[tasks]]
+id = "roblox-wait-for-prompt"
+kind = "wait_for_prompt"
+
+[tasks.backend_preference]
+preferred_backends = ["inject"]
+
+[[tasks.detectors]]
+kind = "ocr"
+detector_id = "prompt-ocr"
+entity_kind = "prompt"
+
+[[tasks.action_graph]]
+id = "wait-for-prompt"
+name = "Wait For Prompt"
+kind = "wait"
+next = ["interact-with-prompt"]
+
+[tasks.action_graph.cooldown]
+cooldown_ms = 150
+
+[[tasks.action_graph.steps]]
+kind = "condition"
+
+[tasks.action_graph.steps.condition]
+entity_kind = "prompt"
+operator = "exists"
+
+[[tasks.action_graph]]
+id = "interact-with-prompt"
+name = "Interact With Prompt"
+kind = "act"
+next = ["complete-prompt"]
+
+[[tasks.action_graph.steps]]
+kind = "action"
+
+[tasks.action_graph.steps.action]
+kind = "interact"
+
+[[tasks.action_graph]]
+id = "complete-prompt"
+name = "Complete Prompt"
+kind = "complete"

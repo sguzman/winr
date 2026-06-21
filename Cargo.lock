@@ -1390,6 +1390,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "toml",
  "winr-perception",
  "winr-types",
 ]

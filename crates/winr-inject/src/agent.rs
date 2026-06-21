@@ -13,8 +13,10 @@ pub trait AdvancedAgentRuntime {
         &mut self,
         command: &AdvancedHostCommandEnvelope,
     ) -> WinrResult<AdvancedHostResponseEnvelope>;
-    fn poll_events(&mut self, session_id: winr_types::AdvancedSessionId)
-        -> WinrResult<Vec<AdvancedAgentEventEnvelope>>;
+    fn poll_events(
+        &mut self,
+        session_id: winr_types::AdvancedSessionId,
+    ) -> WinrResult<Vec<AdvancedAgentEventEnvelope>>;
 }
 
 #[derive(Debug, Clone)]
@@ -119,10 +121,8 @@ impl AdvancedAgentRuntime for StubAdvancedAgent {
         let mut events = Vec::new();
         let updates = self.observations.drain(..).collect::<Vec<_>>();
         for update in updates {
-            events.push(self.next_event(
-                session_id,
-                AdvancedAgentEvent::ObservationTick { update },
-            ));
+            events
+                .push(self.next_event(session_id, AdvancedAgentEvent::ObservationTick { update }));
         }
         Ok(events)
     }

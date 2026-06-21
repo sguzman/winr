@@ -9,8 +9,11 @@ pub trait AdvancedAgentTransport {
     fn send_command(&mut self, command: AdvancedHostCommandEnvelope) -> WinrResult<()>;
     fn recv_response(&mut self) -> WinrResult<Option<AdvancedHostResponseEnvelope>>;
     fn recv_event(&mut self) -> WinrResult<Option<AdvancedAgentEventEnvelope>>;
-    fn push_binary_payload(&mut self, payload: AdvancedBinaryPayloadRef, bytes: Vec<u8>)
-        -> WinrResult<()>;
+    fn push_binary_payload(
+        &mut self,
+        payload: AdvancedBinaryPayloadRef,
+        bytes: Vec<u8>,
+    ) -> WinrResult<()>;
     fn take_binary_payload(&mut self, payload_id: &str) -> WinrResult<Option<Vec<u8>>>;
 }
 

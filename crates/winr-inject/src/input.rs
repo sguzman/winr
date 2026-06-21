@@ -1,7 +1,7 @@
 use winr_types::{AdvancedBackendCapabilities, AdvancedTargetRef};
 use winr_workflows::{
-    preferred_input_sink, InputSinkKind, InputSinkMapping, InputSinkPreference,
-    SemanticInputAction, SemanticInputTarget,
+    InputSinkKind, InputSinkMapping, InputSinkPreference, SemanticInputAction, SemanticInputTarget,
+    preferred_input_sink,
 };
 
 pub trait LayeredInputBackend {
@@ -39,10 +39,16 @@ impl StubLayeredInputBackend {
     fn detail_for_action(&self, sink: InputSinkKind, action: &SemanticInputAction) -> String {
         match (sink, action) {
             (InputSinkKind::SemanticInternalAction, SemanticInputAction::Approach { target }) => {
-                format!("semantic approach via internal controller to {}", describe_target(target))
+                format!(
+                    "semantic approach via internal controller to {}",
+                    describe_target(target)
+                )
             }
             (InputSinkKind::SemanticInternalAction, SemanticInputAction::WalkTo { target }) => {
-                format!("semantic walk_to via internal controller to {}", describe_target(target))
+                format!(
+                    "semantic walk_to via internal controller to {}",
+                    describe_target(target)
+                )
             }
             (InputSinkKind::SemanticInternalAction, _) => {
                 "semantic internal action controller".to_string()
@@ -157,10 +163,7 @@ mod tests {
         backend.capabilities.foreground_input = false;
 
         let mapping = backend
-            .map_action(
-                &SemanticInputAction::MoveForward { duration_ms: 150 },
-                None,
-            )
+            .map_action(&SemanticInputAction::MoveForward { duration_ms: 150 }, None)
             .expect("injected fallback should resolve");
 
         assert_eq!(mapping.sink, InputSinkKind::InjectedRawInput);

@@ -11,5 +11,6 @@ path = "src/lib.rs"
 serde.workspace = true
 schemars.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 winr-perception = { path = "../winr-perception" }
 winr-types = { path = "../winr-types" }

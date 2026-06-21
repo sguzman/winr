@@ -1,0 +1,29 @@
+[[detectors]]
+id = "resource-rock-template"
+name = "Resource Rock Template"
+tags = ["resource", "rock", "harvest"]
+
+[detectors.detector]
+kind = "template_match"
+detector_id = "resource-rock-template"
+entity_kind = "interactable"
+
+[[detectors]]
+id = "dirt-region-memory"
+name = "Dirt Region Memory"
+tags = ["region", "patrol", "dirt"]
+
+[detectors.detector]
+kind = "memory_entity"
+detector_id = "dirt-region-memory"
+entity_kind = "region"
+
+[[detectors]]
+id = "prompt-ocr"
+name = "Prompt OCR"
+tags = ["prompt", "ocr", "interact"]
+
+[detectors.detector]
+kind = "ocr"
+detector_id = "prompt-ocr"
+entity_kind = "prompt"

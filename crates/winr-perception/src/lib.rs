@@ -445,8 +445,10 @@ pub trait ObservationFrameSource {
     fn source_kind(&self) -> ObservationSourceKind;
     fn advertised_capabilities(&self) -> AdvancedBackendCapabilities;
     fn describe_detectors(&self) -> Vec<DetectorDescriptor>;
-    fn capture_frame(&mut self, context: &ObservationCaptureContext)
-        -> WinrResult<Option<ObservationFrame>>;
+    fn capture_frame(
+        &mut self,
+        context: &ObservationCaptureContext,
+    ) -> WinrResult<Option<ObservationFrame>>;
 }
 
 pub trait RenderFrameAnalyzer {
@@ -595,7 +597,11 @@ impl WorldModelTracker {
         let model = self.model.get_or_insert_with(|| WorldModel {
             target: frame.target.clone(),
             last_updated_frame_id: frame.metadata.frame_id,
-            detector_kinds: frame.detectors.iter().map(|detector| detector.kind).collect(),
+            detector_kinds: frame
+                .detectors
+                .iter()
+                .map(|detector| detector.kind)
+                .collect(),
             entities: Vec::new(),
             notes: vec!["world model initialized from observation frame".to_string()],
         });
@@ -663,9 +669,9 @@ impl WorldModelTracker {
             }
         }
 
-        model.entities.retain(|tracked| {
-            tracked.missed_frames < self.config.drop_after_missed_frames
-        });
+        model
+            .entities
+            .retain(|tracked| tracked.missed_frames < self.config.drop_after_missed_frames);
 
         delta
     }
@@ -775,9 +781,7 @@ impl ObservationFrameSource for StaticObservationSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use winr_types::{
-        AdvancedBinaryPayloadRef, AdvancedIpcTransportKind, AdvancedPayloadEncoding,
-    };
+    use winr_types::{AdvancedBinaryPayloadRef, AdvancedIpcTransportKind, AdvancedPayloadEncoding};
 
     fn sample_target() -> AdvancedTargetRef {
         AdvancedTargetRef {
@@ -940,7 +944,10 @@ mod tests {
             },
         );
 
-        assert_eq!(frame.metadata.source, ObservationSourceKind::DesktopScreenshot);
+        assert_eq!(
+            frame.metadata.source,
+            ObservationSourceKind::DesktopScreenshot
+        );
         assert_eq!(frame.metadata.frame_id, 44);
         assert_eq!(frame.notes[0], "captured desktop screenshot");
     }
@@ -1068,12 +1075,16 @@ mod tests {
 
         assert_eq!(stack.source_count(), 2);
         assert_eq!(frames.len(), 2);
-        assert!(frames
-            .iter()
-            .any(|frame| frame.metadata.source == ObservationSourceKind::DesktopScreenshot));
-        assert!(frames
-            .iter()
-            .any(|frame| frame.metadata.source == ObservationSourceKind::MemoryState));
+        assert!(
+            frames
+                .iter()
+                .any(|frame| frame.metadata.source == ObservationSourceKind::DesktopScreenshot)
+        );
+        assert!(
+            frames
+                .iter()
+                .any(|frame| frame.metadata.source == ObservationSourceKind::MemoryState)
+        );
     }
 
     #[test]
@@ -1142,7 +1153,12 @@ mod tests {
         assert_eq!(details.availability.present_count, 10);
         assert!(details.does_not_claim_game_state_api);
         assert!(details.does_not_claim_background_input_channel);
-        assert!(details.debug_overlay.expect("overlay should exist").development_only);
+        assert!(
+            details
+                .debug_overlay
+                .expect("overlay should exist")
+                .development_only
+        );
     }
 
     #[test]

@@ -2,8 +2,7 @@ use winr_perception::{
     DebugOverlayCommand, DetectorOverlay, ObservationCaptureContext, ObservationFrame,
     ObservationFrameHandle, ObservationPixelFormat, ObservationSourceData, OverlayKind,
     RenderDebugOverlaySurface, RenderFrameAnalyzer, RenderFrameAvailability, RenderFrameTiming,
-    RenderHookBoundary, RenderObservationDetails, RenderSampleRegion,
-    RenderSceneUseCase,
+    RenderHookBoundary, RenderObservationDetails, RenderSampleRegion, RenderSceneUseCase,
 };
 use winr_types::{
     AdvancedBackendCapabilities, AdvancedBinaryPayloadRef, AdvancedIpcTransportKind,
@@ -14,8 +13,10 @@ pub trait RenderObservationBackend {
     fn hook_boundary(&self) -> RenderHookBoundary;
     fn capabilities(&self) -> AdvancedBackendCapabilities;
     fn frame_availability(&self) -> RenderFrameAvailability;
-    fn capture_render_frame(&mut self, context: &ObservationCaptureContext)
-        -> WinrResult<ObservationFrame>;
+    fn capture_render_frame(
+        &mut self,
+        context: &ObservationCaptureContext,
+    ) -> WinrResult<ObservationFrame>;
     fn sample_regions(&self, frame: &ObservationFrame) -> Vec<RenderSampleRegion>;
     fn analyze_frame(
         &self,
@@ -147,7 +148,8 @@ impl RenderObservationBackend for StubRenderObserver {
     }
 
     fn sample_regions(&self, frame: &ObservationFrame) -> Vec<RenderSampleRegion> {
-        frame.render_details
+        frame
+            .render_details
             .as_ref()
             .map(|details| details.sample_regions.clone())
             .unwrap_or_default()
@@ -162,7 +164,8 @@ impl RenderObservationBackend for StubRenderObserver {
     }
 
     fn debug_overlay_surface(&self, frame: &ObservationFrame) -> RenderDebugOverlaySurface {
-        frame.render_details
+        frame
+            .render_details
             .as_ref()
             .and_then(|details| details.debug_overlay.clone())
             .unwrap_or(RenderDebugOverlaySurface {
@@ -212,12 +215,18 @@ mod tests {
 
     #[test]
     fn stub_render_observer_captures_timing_and_boundary() {
-        let mut observer = StubRenderObserver::new(sample_context().target.clone(), RenderHookBoundary::DxgiPresent);
+        let mut observer = StubRenderObserver::new(
+            sample_context().target.clone(),
+            RenderHookBoundary::DxgiPresent,
+        );
         let frame = observer
             .capture_render_frame(&sample_context())
             .expect("render capture should succeed");
 
-        assert_eq!(frame.metadata.source, winr_perception::ObservationSourceKind::RenderHookFrame);
+        assert_eq!(
+            frame.metadata.source,
+            winr_perception::ObservationSourceKind::RenderHookFrame
+        );
         let details = frame.render_details.expect("render details should exist");
         assert_eq!(details.boundary, RenderHookBoundary::DxgiPresent);
         assert_eq!(details.timing.frame_interval_ms, Some(16));
@@ -228,7 +237,10 @@ mod tests {
 
     #[test]
     fn stub_render_observer_supports_analysis_and_debug_overlay() {
-        let mut observer = StubRenderObserver::new(sample_context().target.clone(), RenderHookBoundary::D3d11Present);
+        let mut observer = StubRenderObserver::new(
+            sample_context().target.clone(),
+            RenderHookBoundary::D3d11Present,
+        );
         let frame = observer
             .capture_render_frame(&sample_context())
             .expect("render capture should succeed");
@@ -246,7 +258,8 @@ mod tests {
 
     #[test]
     fn stub_render_observer_is_render_only_capability() {
-        let observer = StubRenderObserver::new(sample_context().target, RenderHookBoundary::D3d12Present);
+        let observer =
+            StubRenderObserver::new(sample_context().target, RenderHookBoundary::D3d12Present);
         let capabilities = observer.capabilities();
 
         assert!(capabilities.render_observation);

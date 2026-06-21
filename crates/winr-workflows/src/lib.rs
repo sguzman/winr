@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use winr_perception::{DetectorDescriptor, EntityKind, ObservationFrame, WorldModel};
 use winr_types::{AdvancedBackendCapabilities, AdvancedProfileBackend};
 
@@ -127,6 +128,81 @@ pub struct AppPackRegistry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PackManifestFile {
+    pub id: String,
+    pub name: String,
+    pub target_family: String,
+    #[serde(default)]
+    pub backend_preferences: Vec<AdvancedProfileBackend>,
+    pub detectors_file: String,
+    pub workflows_file: String,
+    pub movement_file: String,
+    pub profile_presets_file: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackDetectorPreset {
+    pub id: String,
+    pub name: String,
+    pub detector: DeclarativeDetector,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackMovementTuning {
+    pub turn_step_milli_degrees: i32,
+    pub arrival_threshold_millimeters: u32,
+    pub move_step_ms: u64,
+    pub patrol_region_radius_millimeters: u32,
+    pub stuck_frame_window: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackProfilePreset {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub workflow_task: WorkflowTaskKind,
+    #[serde(default)]
+    pub backend_preferences: Vec<AdvancedProfileBackend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_title_contains: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_exe: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackDetectorFile {
+    #[serde(default)]
+    pub detectors: Vec<AppPackDetectorPreset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackWorkflowFile {
+    #[serde(default)]
+    pub tasks: Vec<WorkflowTaskRecipe>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackProfilePresetFile {
+    #[serde(default)]
+    pub presets: Vec<AppPackProfilePreset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AppPackBundle {
+    pub manifest: AppPackManifest,
+    #[serde(default)]
+    pub detectors: Vec<AppPackDetectorPreset>,
+    #[serde(default)]
+    pub task_recipes: Vec<WorkflowTaskRecipe>,
+    pub movement_tuning: AppPackMovementTuning,
+    #[serde(default)]
+    pub profile_presets: Vec<AppPackProfilePreset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WorkflowPlan {
     pub pack_id: String,
     pub task: WorkflowTaskDefinition,
@@ -247,18 +323,10 @@ pub enum WorkflowRecoveryStep {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkflowStep {
-    Detector {
-        detector: DeclarativeDetector,
-    },
-    Action {
-        action: SemanticInputAction,
-    },
-    Condition {
-        condition: WorkflowCondition,
-    },
-    Recovery {
-        step: WorkflowRecoveryStep,
-    },
+    Detector { detector: DeclarativeDetector },
+    Action { action: SemanticInputAction },
+    Condition { condition: WorkflowCondition },
+    Recovery { step: WorkflowRecoveryStep },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -481,6 +549,57 @@ impl WorkflowDslDocument {
     }
 }
 
+impl AppPackBundle {
+    pub fn task_recipe(&self, kind: WorkflowTaskKind) -> Option<&WorkflowTaskRecipe> {
+        self.task_recipes.iter().find(|task| task.kind == kind)
+    }
+
+    pub fn detector(&self, id: &str) -> Option<&AppPackDetectorPreset> {
+        self.detectors.iter().find(|detector| detector.id == id)
+    }
+
+    pub fn profile_preset(&self, id: &str) -> Option<&AppPackProfilePreset> {
+        self.profile_presets.iter().find(|preset| preset.id == id)
+    }
+}
+
+pub fn load_app_pack_from_dir(dir: &Path) -> Result<AppPackBundle, String> {
+    let manifest_path = dir.join("pack.toml");
+    let manifest_text = std::fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("failed to read '{}': {error}", manifest_path.display()))?;
+    let manifest_file: PackManifestFile = toml::from_str(&manifest_text)
+        .map_err(|error| format!("failed to parse '{}': {error}", manifest_path.display()))?;
+
+    let detectors_file: AppPackDetectorFile = read_pack_toml(dir, &manifest_file.detectors_file)?;
+    let workflows_file: AppPackWorkflowFile = read_pack_toml(dir, &manifest_file.workflows_file)?;
+    let movement_tuning: AppPackMovementTuning = read_pack_toml(dir, &manifest_file.movement_file)?;
+    let profile_presets_file: AppPackProfilePresetFile =
+        read_pack_toml(dir, &manifest_file.profile_presets_file)?;
+
+    Ok(AppPackBundle {
+        manifest: AppPackManifest {
+            id: manifest_file.id,
+            name: manifest_file.name,
+            target_family: manifest_file.target_family,
+            backend_preferences: manifest_file.backend_preferences,
+        },
+        detectors: detectors_file.detectors,
+        task_recipes: workflows_file.tasks,
+        movement_tuning,
+        profile_presets: profile_presets_file.presets,
+    })
+}
+
+fn read_pack_toml<T>(dir: &Path, relative_path: &str) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let path = dir.join(relative_path);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
+    toml::from_str(&text).map_err(|error| format!("failed to parse '{}': {error}", path.display()))
+}
+
 impl WorkflowTaskRecipe {
     pub fn compile_plan(&self) -> WorkflowPlan {
         WorkflowPlan {
@@ -535,7 +654,12 @@ pub fn next_nodes<'a>(recipe: &'a WorkflowTaskRecipe, node_id: &str) -> Vec<&'a 
 
     node.next
         .iter()
-        .filter_map(|next_id| recipe.action_graph.iter().find(|candidate| candidate.id == *next_id))
+        .filter_map(|next_id| {
+            recipe
+                .action_graph
+                .iter()
+                .find(|candidate| candidate.id == *next_id)
+        })
         .collect()
 }
 
@@ -547,9 +671,9 @@ fn evaluate_condition(condition: &WorkflowCondition, world_model: &WorldModel) -
         WorkflowConditionOperator::ConfidenceAtLeast => entity.is_some_and(|entity| {
             entity.smoothed_confidence * 100.0 >= condition.threshold.unwrap_or(0) as f32
         }),
-        WorkflowConditionOperator::LostForFramesAtLeast => entity.is_some_and(|entity| {
-            entity.missed_frames >= condition.threshold.unwrap_or(0)
-        }),
+        WorkflowConditionOperator::LostForFramesAtLeast => {
+            entity.is_some_and(|entity| entity.missed_frames >= condition.threshold.unwrap_or(0))
+        }
     }
 }
 
@@ -570,11 +694,10 @@ fn workflow_intent_kind_for_action(action: &SemanticInputAction) -> WorkflowInte
     }
 }
 
-pub fn select_prioritized_entity_id(
-    world_model: &WorldModel,
-    kind: EntityKind,
-) -> Option<String> {
-    world_model.best_entity(kind).map(|entity| entity.entity.id.clone())
+pub fn select_prioritized_entity_id(world_model: &WorldModel, kind: EntityKind) -> Option<String> {
+    world_model
+        .best_entity(kind)
+        .map(|entity| entity.entity.id.clone())
 }
 
 impl NavigationContext {
@@ -599,12 +722,7 @@ impl NavigationContext {
             .iter()
             .find(|entity| entity.entity.kind == EntityKind::Camera)
             .and_then(|_| None)
-            .or_else(|| {
-                self.world_model
-                    .notes
-                    .iter()
-                    .find_map(|_| None)
-            })
+            .or_else(|| self.world_model.notes.iter().find_map(|_| None))
     }
 }
 
@@ -673,10 +791,7 @@ impl NavigationController for ApproachUntilThresholdController {
             return NavigationDecision {
                 kind: NavigationDecisionKind::Arrived,
                 actions: vec![SemanticInputAction::StopMotion],
-                detail: format!(
-                    "arrived within threshold at distance {} mm",
-                    distance
-                ),
+                detail: format!("arrived within threshold at distance {} mm", distance),
             };
         }
 
@@ -687,7 +802,10 @@ impl NavigationController for ApproachUntilThresholdController {
                     entity_id: self.target_entity_id.clone(),
                 },
             }],
-            detail: format!("approach target '{}' at {} mm", self.target_entity_id, distance),
+            detail: format!(
+                "approach target '{}' at {} mm",
+                self.target_entity_id, distance
+            ),
         }
     }
 }
@@ -702,7 +820,8 @@ impl NavigationController for BoundedRegionPatrolController {
         context: &NavigationContext,
         config: &NavigationControllerConfig,
     ) -> NavigationDecision {
-        let Some(region_distance) = context.entity_distance_millimeters(&self.region_entity_id) else {
+        let Some(region_distance) = context.entity_distance_millimeters(&self.region_entity_id)
+        else {
             return NavigationDecision {
                 kind: NavigationDecisionKind::Blocked,
                 actions: Vec::new(),
@@ -839,20 +958,25 @@ pub fn is_stuck(memory: &ControllerMemory, config: &NavigationControllerConfig) 
         return false;
     }
 
-    let window = &memory.progress_samples[memory.progress_samples.len() - config.stuck_frame_window..];
-    let Some(first) = window.first().and_then(|sample| sample.target_distance_millimeters) else {
+    let window =
+        &memory.progress_samples[memory.progress_samples.len() - config.stuck_frame_window..];
+    let Some(first) = window
+        .first()
+        .and_then(|sample| sample.target_distance_millimeters)
+    else {
         return false;
     };
-    let Some(last) = window.last().and_then(|sample| sample.target_distance_millimeters) else {
+    let Some(last) = window
+        .last()
+        .and_then(|sample| sample.target_distance_millimeters)
+    else {
         return false;
     };
 
     first.abs_diff(last) <= config.stuck_distance_epsilon_millimeters
 }
 
-fn entity_distance_millimeters(
-    entity: &winr_perception::TrackedObservationEntity,
-) -> Option<u32> {
+fn entity_distance_millimeters(entity: &winr_perception::TrackedObservationEntity) -> Option<u32> {
     if entity.entity.kind == EntityKind::Prompt {
         return entity
             .entity
@@ -1249,7 +1373,11 @@ mod tests {
                 return None;
             }
 
-            Some(RobloxPack.default_plan(task).expect("approach plan should exist"))
+            Some(
+                RobloxPack
+                    .default_plan(task)
+                    .expect("approach plan should exist"),
+            )
         }
     }
 
@@ -1271,28 +1399,22 @@ mod tests {
                 freshness_ms: 16,
             },
             source_data: match source {
-                ObservationSourceKind::DesktopScreenshot => {
-                    ObservationSourceData::MemoryState {
-                        snapshot_id: "desktop-placeholder".to_string(),
-                        state_fields: Vec::new(),
-                    }
-                }
-                ObservationSourceKind::RenderHookFrame => {
-                    ObservationSourceData::MemoryState {
-                        snapshot_id: "render-placeholder".to_string(),
-                        state_fields: Vec::new(),
-                    }
-                }
+                ObservationSourceKind::DesktopScreenshot => ObservationSourceData::MemoryState {
+                    snapshot_id: "desktop-placeholder".to_string(),
+                    state_fields: Vec::new(),
+                },
+                ObservationSourceKind::RenderHookFrame => ObservationSourceData::MemoryState {
+                    snapshot_id: "render-placeholder".to_string(),
+                    state_fields: Vec::new(),
+                },
                 ObservationSourceKind::MemoryState => ObservationSourceData::MemoryState {
                     snapshot_id: "memory-placeholder".to_string(),
                     state_fields: Vec::new(),
                 },
-                ObservationSourceKind::DetectorOverlay => {
-                    ObservationSourceData::MemoryState {
-                        snapshot_id: "overlay-placeholder".to_string(),
-                        state_fields: Vec::new(),
-                    }
-                }
+                ObservationSourceKind::DetectorOverlay => ObservationSourceData::MemoryState {
+                    snapshot_id: "overlay-placeholder".to_string(),
+                    state_fields: Vec::new(),
+                },
             },
             render_details: None,
             memory_details: None,
@@ -1351,7 +1473,10 @@ mod tests {
             .expect("render frame should plan");
 
         assert_eq!(desktop_plan.task.id, render_plan.task.id);
-        assert_eq!(desktop_plan.required_entity_kinds, render_plan.required_entity_kinds);
+        assert_eq!(
+            desktop_plan.required_entity_kinds,
+            render_plan.required_entity_kinds
+        );
     }
 
     #[test]
@@ -1540,7 +1665,11 @@ mod tests {
     #[test]
     fn approach_controller_arrives_and_stops_when_close() {
         let mut world_model = sample_world_model();
-        if let Some(rock) = world_model.entities.iter_mut().find(|entity| entity.entity.id == "rock-1") {
+        if let Some(rock) = world_model
+            .entities
+            .iter_mut()
+            .find(|entity| entity.entity.id == "rock-1")
+        {
             rock.entity.tags = vec!["distance_mm:600".to_string()];
         }
         let controller = ApproachUntilThresholdController {
@@ -1653,7 +1782,10 @@ mod tests {
             scan_decision.actions[0],
             SemanticInputAction::Approach { .. }
         ));
-        assert_eq!(interact_decision.actions, vec![SemanticInputAction::Interact]);
+        assert_eq!(
+            interact_decision.actions,
+            vec![SemanticInputAction::Interact]
+        );
     }
 
     #[test]
@@ -1666,14 +1798,16 @@ mod tests {
 
         assert_eq!(plan.required_detectors.len(), 1);
         assert_eq!(plan.required_entity_kinds, vec![EntityKind::Interactable]);
-        assert!(plan
-            .intents
-            .iter()
-            .any(|intent| matches!(intent.semantic_action, Some(SemanticInputAction::Approach { .. }))));
-        assert!(plan
-            .intents
-            .iter()
-            .any(|intent| matches!(intent.semantic_action, Some(SemanticInputAction::Interact))));
+        assert!(plan.intents.iter().any(|intent| matches!(
+            intent.semantic_action,
+            Some(SemanticInputAction::Approach { .. })
+        )));
+        assert!(
+            plan.intents.iter().any(|intent| matches!(
+                intent.semantic_action,
+                Some(SemanticInputAction::Interact)
+            ))
+        );
     }
 
     #[test]
@@ -1694,9 +1828,22 @@ mod tests {
             .expect("wait node should exist");
 
         assert!(matches!(detect.kind, WorkflowNodeKind::Detect));
-        assert_eq!(detect.retry.as_ref().expect("retry should exist").max_attempts, 3);
+        assert_eq!(
+            detect
+                .retry
+                .as_ref()
+                .expect("retry should exist")
+                .max_attempts,
+            3
+        );
         assert_eq!(wait.next.len(), 2);
-        assert_eq!(wait.cooldown.as_ref().expect("cooldown should exist").cooldown_ms, 200);
+        assert_eq!(
+            wait.cooldown
+                .as_ref()
+                .expect("cooldown should exist")
+                .cooldown_ms,
+            200
+        );
     }
 
     #[test]
@@ -1713,7 +1860,8 @@ mod tests {
             WorkflowRecoveryStep::RetryCurrentNode
         ));
         assert_eq!(
-            recipe.backend_preference
+            recipe
+                .backend_preference
                 .as_ref()
                 .expect("backend preference should exist")
                 .preferred_backends[0],
@@ -1734,14 +1882,89 @@ mod tests {
         let next = next_nodes(search, "wait-for-prompt");
         assert_eq!(next.len(), 2);
         assert_eq!(patrol.kind, WorkflowTaskKind::PatrolRegion);
-        assert!(patrol
-            .action_graph
-            .iter()
-            .any(|node| node.steps.iter().any(|step| matches!(
-                step,
-                WorkflowStep::Action {
-                    action: SemanticInputAction::WalkTo { .. }
-                }
-            ))));
+        assert!(
+            patrol
+                .action_graph
+                .iter()
+                .any(|node| node.steps.iter().any(|step| matches!(
+                    step,
+                    WorkflowStep::Action {
+                        action: SemanticInputAction::WalkTo { .. }
+                    }
+                )))
+        );
+    }
+
+    #[test]
+    fn roblox_pack_loads_as_generic_specialization() {
+        let pack_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packs/roblox");
+        let pack = load_app_pack_from_dir(&pack_dir).expect("roblox pack should load");
+
+        assert_eq!(pack.manifest.id, "roblox");
+        assert_eq!(pack.manifest.target_family, "roblox");
+        assert_eq!(
+            pack.manifest.backend_preferences,
+            vec![AdvancedProfileBackend::Inject]
+        );
+
+        assert!(pack.detector("resource-rock-template").is_some());
+        assert!(pack.detector("dirt-region-memory").is_some());
+        assert!(pack.detector("prompt-ocr").is_some());
+
+        assert_eq!(pack.movement_tuning.turn_step_milli_degrees, 10000);
+        assert_eq!(pack.movement_tuning.arrival_threshold_millimeters, 850);
+        assert_eq!(pack.movement_tuning.move_step_ms, 140);
+        assert_eq!(pack.movement_tuning.patrol_region_radius_millimeters, 2200);
+        assert_eq!(pack.movement_tuning.stuck_frame_window, 3);
+
+        assert!(pack.profile_preset("resource-harvest").is_some());
+        assert!(pack.profile_preset("region-patrol").is_some());
+
+        let harvest = pack
+            .task_recipe(WorkflowTaskKind::Approach)
+            .expect("harvest recipe should exist");
+        let patrol = pack
+            .task_recipe(WorkflowTaskKind::PatrolRegion)
+            .expect("patrol recipe should exist");
+        let prompt = pack
+            .task_recipe(WorkflowTaskKind::WaitForPrompt)
+            .expect("prompt recipe should exist");
+
+        let harvest_plan = harvest.compile_plan();
+        let patrol_plan = patrol.compile_plan();
+        let prompt_plan = prompt.compile_plan();
+
+        assert_eq!(harvest_plan.task.kind, WorkflowTaskKind::Approach);
+        assert_eq!(patrol_plan.task.kind, WorkflowTaskKind::PatrolRegion);
+        assert_eq!(prompt_plan.task.kind, WorkflowTaskKind::WaitForPrompt);
+        assert!(
+            harvest_plan
+                .required_entity_kinds
+                .contains(&EntityKind::Interactable)
+        );
+        assert!(
+            patrol_plan
+                .required_entity_kinds
+                .contains(&EntityKind::Region)
+        );
+        assert!(
+            prompt_plan
+                .required_entity_kinds
+                .contains(&EntityKind::Prompt)
+        );
+        assert!(harvest_plan.intents.iter().any(|intent| matches!(
+            intent.semantic_action,
+            Some(SemanticInputAction::Approach { .. })
+        )));
+        assert!(patrol_plan.intents.iter().any(|intent| matches!(
+            intent.semantic_action,
+            Some(SemanticInputAction::WalkTo { .. })
+        )));
+        assert!(
+            prompt_plan.intents.iter().any(|intent| matches!(
+                intent.semantic_action,
+                Some(SemanticInputAction::Interact)
+            ))
+        );
     }
 }

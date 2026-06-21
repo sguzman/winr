@@ -1,5 +1,5 @@
-mod attachment;
 mod agent;
+mod attachment;
 mod discovery;
 mod host;
 mod input;
@@ -16,13 +16,13 @@ use winr_types::{
     AdvancedBackendStability, AdvancedCapabilityCatalog, AdvancedCapabilityMatch,
     AdvancedCapabilityRequirements, AdvancedCapabilitySelection, AdvancedFrontend,
     AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedIpcTransportDescriptor,
-    AdvancedIpcTransportKind, AdvancedProfileBackend,
-    AdvancedProfileExecutionPlan, AdvancedSequenceNumber, AdvancedSessionId, MouseInputMode,
-    ProfileConfig, WindowSelector, WinrError, WinrResult,
+    AdvancedIpcTransportKind, AdvancedProfileBackend, AdvancedProfileExecutionPlan,
+    AdvancedSequenceNumber, AdvancedSessionId, MouseInputMode, ProfileConfig, WindowSelector,
+    WinrError, WinrResult,
 };
 
-pub use attachment::AttachmentSupervisor;
 pub use agent::{AdvancedAgentRuntime, StubAdvancedAgent};
+pub use attachment::AttachmentSupervisor;
 pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 pub use host::AdvancedHostRuntime;
 pub use input::{LayeredInputBackend, StubLayeredInputBackend};

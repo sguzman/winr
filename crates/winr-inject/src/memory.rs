@@ -190,19 +190,22 @@ impl MemoryObservationBackend for StubMemoryObserver {
     }
 
     fn snapshot_player_state(&self, frame: &ObservationFrame) -> Option<MemoryPlayerState> {
-        frame.memory_details
+        frame
+            .memory_details
             .as_ref()
             .and_then(|details| details.player_state.clone())
     }
 
     fn snapshot_camera_state(&self, frame: &ObservationFrame) -> Option<MemoryCameraState> {
-        frame.memory_details
+        frame
+            .memory_details
             .as_ref()
             .and_then(|details| details.camera_state.clone())
     }
 
     fn snapshot_nearby_objects(&self, frame: &ObservationFrame) -> Vec<MemoryObjectState> {
-        frame.memory_details
+        frame
+            .memory_details
             .as_ref()
             .map(|details| details.nearby_objects.clone())
             .unwrap_or_default()
@@ -230,7 +233,8 @@ mod tests {
         }
 
         fn project_entities(&self, frame: &ObservationFrame) -> Vec<ObservationEntity> {
-            frame.memory_details
+            frame
+                .memory_details
                 .as_ref()
                 .map(|details| {
                     details

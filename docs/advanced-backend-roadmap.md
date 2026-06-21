@@ -180,12 +180,14 @@ See `docs/advanced-backend-phase9-decisions.md` for the concrete decisions recor
 
 ## Phase 10: Roblox Specialization
 
-- [ ] Treat Roblox as a specialization on top of the generic advanced backend
-- [ ] Add Roblox-specific detector packs for common resource nodes, prompts, and regions
-- [ ] Add Roblox-specific movement tuning
-- [ ] Add Roblox-specific task recipes for harvesting, patrolling, or object approach
-- [ ] Add Roblox-specific profile presets for workflows
-- [ ] Prevent the generic workflow engine from depending on Roblox names, assumptions, or object categories
+- [x] Treat Roblox as a specialization on top of the generic advanced backend
+- [x] Add Roblox-specific detector packs for common resource nodes, prompts, and regions
+- [x] Add Roblox-specific movement tuning
+- [x] Add Roblox-specific task recipes for harvesting, patrolling, or object approach
+- [x] Add Roblox-specific profile presets for workflows
+- [x] Prevent the generic workflow engine from depending on Roblox names, assumptions, or object categories
+
+See `docs/advanced-backend-phase10-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 11: Reliability And Observability
 
@@ -214,7 +216,7 @@ See `docs/advanced-backend-phase9-decisions.md` for the concrete decisions recor
 - [x] Define semantic input action model
 - [x] Design workflow DSL v2
 - [x] Build simple navigation controllers
-- [ ] Add app-specific packs starting with Roblox
+- [x] Add app-specific packs starting with Roblox
 
 ## Success Criteria
 

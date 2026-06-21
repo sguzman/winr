@@ -1,0 +1,17 @@
+[[presets]]
+id = "resource-harvest"
+name = "Resource Harvest"
+description = "Approach a detected resource rock, wait for an interaction prompt, and interact through the injected backend."
+workflow_task = "approach"
+backend_preferences = ["inject"]
+target_title_contains = "Roblox"
+target_exe = "RobloxPlayerBeta.exe"
+
+[[presets]]
+id = "region-patrol"
+name = "Region Patrol"
+description = "Patrol a remembered dirt region while continuously scanning for nearby interactables and prompts."
+workflow_task = "patrol_region"
+backend_preferences = ["inject"]
+target_title_contains = "Roblox"
+target_exe = "RobloxPlayerBeta.exe"

@@ -2,3 +2,7 @@ id = "roblox"
 name = "Roblox Pack"
 target_family = "roblox"
 backend_preferences = ["inject"]
+detectors_file = "detectors.toml"
+workflows_file = "workflows.toml"
+movement_file = "movement.toml"
+profile_presets_file = "profile-presets.toml"

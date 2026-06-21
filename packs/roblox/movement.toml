@@ -1,0 +1,5 @@
+turn_step_milli_degrees = 10000
+arrival_threshold_millimeters = 850
+move_step_ms = 140
+patrol_region_radius_millimeters = 2200
+stuck_frame_window = 3

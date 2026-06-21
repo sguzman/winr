@@ -1,7 +1,7 @@
 use winr_types::{
     AdvancedAttachment, AdvancedAttachmentEvent, AdvancedAttachmentHealth,
-    AdvancedAttachmentHealthStatus, AdvancedAttachmentPolicy, AdvancedReattachMode,
-    WindowSelector, WinrResult,
+    AdvancedAttachmentHealthStatus, AdvancedAttachmentPolicy, AdvancedReattachMode, WindowSelector,
+    WinrResult,
 };
 
 use crate::{discover_attachable_targets, resolve_attachable_target};
@@ -146,9 +146,8 @@ impl AttachmentSupervisor {
 mod tests {
     use super::*;
     use winr_types::{
-        AdvancedAttachableTarget,
-        AdvancedBackendLifecycleState, AdvancedIntegrityLevel, AdvancedProcessArchitecture,
-        AdvancedProcessMetadata, AdvancedTargetRef,
+        AdvancedAttachableTarget, AdvancedBackendLifecycleState, AdvancedIntegrityLevel,
+        AdvancedProcessArchitecture, AdvancedProcessMetadata, AdvancedTargetRef,
     };
 
     fn sample_target(pid: u32) -> AdvancedAttachableTarget {
