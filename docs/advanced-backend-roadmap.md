@@ -91,13 +91,15 @@ See `docs/advanced-backend-phase2-decisions.md` for the concrete decisions recor
 
 ## Phase 3: Observation Stack
 
-- [ ] Support desktop screenshot mode as one observation source
-- [ ] Support render-hook frame mode as one observation source
-- [ ] Support memory-backed state mode as one observation source
-- [ ] Support optional OCR and detector overlays
-- [ ] Normalize all observation sources into one internal observation frame model
-- [ ] Include timestamp, target identity, backend source, image or frame handle, camera hints, player-state hints, detected entities, confidence metrics, and freshness markers in that model
-- [ ] Keep workflows independent from the specific observation source that produced the frame
+- [x] Support desktop screenshot mode as one observation source
+- [x] Support render-hook frame mode as one observation source
+- [x] Support memory-backed state mode as one observation source
+- [x] Support optional OCR and detector overlays
+- [x] Normalize all observation sources into one internal observation frame model
+- [x] Include timestamp, target identity, backend source, image or frame handle, camera hints, player-state hints, detected entities, confidence metrics, and freshness markers in that model
+- [x] Keep workflows independent from the specific observation source that produced the frame
+
+See `docs/advanced-backend-phase3-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 4: Render Observation
 
@@ -196,7 +198,7 @@ See `docs/advanced-backend-phase2-decisions.md` for the concrete decisions recor
 
 - [x] Define advanced backend traits and lifecycle contracts
 - [x] Define host-agent split and protocol
-- [ ] Define normalized observation frame model
+- [x] Define normalized observation frame model
 - [ ] Define semantic input action model
 - [ ] Design workflow DSL v2
 - [ ] Build simple navigation controllers

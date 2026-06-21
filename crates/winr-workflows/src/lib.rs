@@ -125,8 +125,13 @@ impl WorkflowExecutionTrace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use winr_perception::{
+        ObservationMetadata, ObservationSourceData, ObservationSourceKind, ObservationStateVersion,
+    };
 
     struct RobloxPack;
+
+    struct EntityOnlyPlanner;
 
     impl AppWorkflowPack for RobloxPack {
         fn manifest(&self) -> AppPackManifest {
@@ -172,6 +177,80 @@ mod tests {
         }
     }
 
+    impl WorkflowPlanner for EntityOnlyPlanner {
+        fn can_plan(&self, frame: &ObservationFrame) -> bool {
+            frame
+                .entities
+                .iter()
+                .any(|entity| entity.kind == EntityKind::Interactable)
+        }
+
+        fn plan(&self, frame: &ObservationFrame, task: WorkflowTaskKind) -> Option<WorkflowPlan> {
+            if task != WorkflowTaskKind::Approach || !self.can_plan(frame) {
+                return None;
+            }
+
+            Some(RobloxPack.default_plan(task).expect("approach plan should exist"))
+        }
+    }
+
+    fn sample_frame(source: ObservationSourceKind) -> ObservationFrame {
+        ObservationFrame {
+            target: winr_types::AdvancedTargetRef {
+                hwnd: Some("0x0000000000001234".to_string()),
+                pid: Some(42),
+                exe: Some("RobloxPlayerBeta.exe".to_string()),
+                window_class: Some("WINDOWSCLIENT".to_string()),
+                title_hint: Some("Roblox".to_string()),
+            },
+            metadata: ObservationMetadata {
+                version: ObservationStateVersion::V1,
+                backend: AdvancedProfileBackend::Inject,
+                source,
+                frame_id: 7,
+                timestamp_ms: 1000,
+                freshness_ms: 16,
+            },
+            source_data: match source {
+                ObservationSourceKind::DesktopScreenshot => {
+                    ObservationSourceData::MemoryState {
+                        snapshot_id: "desktop-placeholder".to_string(),
+                        state_fields: Vec::new(),
+                    }
+                }
+                ObservationSourceKind::RenderHookFrame => {
+                    ObservationSourceData::MemoryState {
+                        snapshot_id: "render-placeholder".to_string(),
+                        state_fields: Vec::new(),
+                    }
+                }
+                ObservationSourceKind::MemoryState => ObservationSourceData::MemoryState {
+                    snapshot_id: "memory-placeholder".to_string(),
+                    state_fields: Vec::new(),
+                },
+                ObservationSourceKind::DetectorOverlay => {
+                    ObservationSourceData::MemoryState {
+                        snapshot_id: "overlay-placeholder".to_string(),
+                        state_fields: Vec::new(),
+                    }
+                }
+            },
+            camera_hints: None,
+            player_state_hints: None,
+            confidence: None,
+            detectors: Vec::new(),
+            detector_overlays: Vec::new(),
+            entities: vec![winr_perception::ObservationEntity {
+                id: "rock-1".to_string(),
+                kind: EntityKind::Interactable,
+                label: "Rock".to_string(),
+                confidence: 0.9,
+                tags: Vec::new(),
+            }],
+            notes: Vec::new(),
+        }
+    }
+
     #[test]
     fn registry_can_hold_generic_pack_manifest() {
         let mut registry = AppPackRegistry::default();
@@ -195,5 +274,22 @@ mod tests {
         assert_eq!(trace.events.len(), 2);
         assert_eq!(trace.events[0].sequence, 1);
         assert_eq!(trace.events[1].sequence, 2);
+    }
+
+    #[test]
+    fn planner_stays_source_agnostic_for_equivalent_frames() {
+        let planner = EntityOnlyPlanner;
+        let desktop_frame = sample_frame(ObservationSourceKind::DesktopScreenshot);
+        let render_frame = sample_frame(ObservationSourceKind::RenderHookFrame);
+
+        let desktop_plan = planner
+            .plan(&desktop_frame, WorkflowTaskKind::Approach)
+            .expect("desktop frame should plan");
+        let render_plan = planner
+            .plan(&render_frame, WorkflowTaskKind::Approach)
+            .expect("render frame should plan");
+
+        assert_eq!(desktop_plan.task.id, render_plan.task.id);
+        assert_eq!(desktop_plan.required_entity_kinds, render_plan.required_entity_kinds);
     }
 }
