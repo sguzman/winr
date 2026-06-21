@@ -1,0 +1,50 @@
+game_build = "unknown"
+schema_version = "1"
+
+[player_position]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "vec3_f32"
+
+[player_velocity]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "vec3_f32"
+
+[camera_yaw_milli_degrees]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "i32"
+
+[camera_pitch_milli_degrees]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "i32"
+
+[prompt_visible]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "u8_bool"
+
+[prompt_distance_millimeters]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "u32"
+
+[[objects]]
+id = "resource-rock-1"
+label = "Resource Rock"
+kind = "resource_node"
+interactable = true
+
+[objects.position]
+module = "RobloxPlayerBeta.exe"
+base_offset = 0x0
+dereference_offsets = []
+value_kind = "vec3_i32"

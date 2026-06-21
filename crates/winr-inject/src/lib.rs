@@ -4,6 +4,7 @@ mod discovery;
 mod host;
 mod input;
 mod memory;
+mod roblox;
 mod render;
 mod transport;
 
@@ -30,6 +31,10 @@ pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 pub use host::AdvancedHostRuntime;
 pub use input::{LayeredInputBackend, StubLayeredInputBackend};
 pub use memory::{MemoryObservationBackend, StubMemoryObserver};
+pub use roblox::{
+    LiveRobloxRunOptions, inspect_live_roblox_session, load_roblox_memory_schema,
+    run_live_roblox_workflow,
+};
 pub use render::{RenderObservationBackend, StubRenderObserver};
 pub use transport::{AdvancedAgentTransport, InMemoryAgentTransport};
 
@@ -509,6 +514,34 @@ impl AdvancedBackendSession {
             command_records: self.command_records.clone(),
             observations: self.observation_history.clone(),
         }
+    }
+
+    pub fn record_command_outcome(
+        &mut self,
+        command_name: impl Into<String>,
+        status: AdvancedCommandAckStatus,
+        detail: impl Into<String>,
+    ) {
+        let detail = detail.into();
+        let sequence = self.next_host_sequence;
+        self.next_host_sequence.0 += 1;
+        self.command_records.push(AdvancedCommandRecord {
+            command_sequence: sequence,
+            command_name: command_name.into(),
+            status,
+            detail: detail.clone(),
+        });
+        self.record_structured_event(
+            match status {
+                AdvancedCommandAckStatus::Pending => AdvancedStructuredEventKind::CommandQueued,
+                AdvancedCommandAckStatus::Acked => {
+                    AdvancedStructuredEventKind::CommandAcknowledged
+                }
+                AdvancedCommandAckStatus::Rejected => AdvancedStructuredEventKind::Error,
+            },
+            detail,
+            sequence.0,
+        );
     }
 
     fn next_command(&mut self, command: AdvancedHostCommand) -> AdvancedHostCommandEnvelope {

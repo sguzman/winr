@@ -16,6 +16,7 @@ use winr_core::{
     ListWindowsOptions, ProfileRunOptions, current_mcp_config,
     describe_profile_workflow as core_describe_profile_workflow, focus_window as core_focus_window,
     input_keys as core_input_keys, input_text as core_input_text,
+    inspect_live_profile_session as core_inspect_live_profile_session,
     list_windows as core_list_windows, load_profile as core_load_profile,
     mouse_click as core_mouse_click,
     mouse_click_window_with_mode as core_mouse_click_window_with_mode,
@@ -26,11 +27,11 @@ use winr_core::{
     window_info as core_window_info,
 };
 use winr_types::{
-    AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, MouseInputMode,
-    ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend, ScreenshotResult,
-    SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest, UiaFindResponse,
-    UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo,
-    WindowSelector, WinrError,
+    AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, LiveSessionInspection,
+    MouseInputMode, ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend,
+    ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest,
+    UiaFindResponse, UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult,
+    WindowInfo, WindowSelector, WinrError,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -337,6 +338,20 @@ impl WinrMcpServer {
             core_load_profile(PathBuf::from(&params.path).as_path())
                 .map(|profile| core_describe_profile_workflow(&profile, AdvancedFrontend::Mcp)),
         )
+    }
+
+    #[rmcp::tool(
+        name = "profile_live_inspect",
+        description = "Inspect a live Roblox advanced-backend session and latest normalized observation"
+    )]
+    #[instrument(skip(self, params))]
+    async fn profile_live_inspect(
+        &self,
+        Parameters(params): Parameters<ProfileInspectParams>,
+    ) -> McpToolResult<LiveSessionInspection> {
+        from_winr(core_load_profile(PathBuf::from(&params.path).as_path()).and_then(|profile| {
+            core_inspect_live_profile_session(&profile, AdvancedFrontend::Mcp)
+        }))
     }
 
     #[rmcp::tool(

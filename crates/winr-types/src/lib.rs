@@ -157,6 +157,10 @@ pub struct ProfileConfig {
     pub schedule: ProfileSchedule,
     pub logging: ProfileLogging,
     pub safety: ProfileSafety,
+    #[serde(default)]
+    pub workflow: Option<ProfileWorkflowConfig>,
+    #[serde(default)]
+    pub advanced: Option<ProfileAdvancedConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -179,6 +183,36 @@ impl Default for ProfileExecution {
             backend: AdvancedProfileBackend::Auto,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileWorkflowConfig {
+    pub pack_id: String,
+    pub task: String,
+    #[serde(default)]
+    pub tick_interval_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileAdvancedConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roblox: Option<RobloxAdvancedConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxAdvancedConfig {
+    pub memory_schema_path: String,
+    pub patrol_region: RobloxPatrolRegionConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_pipe_name: Option<String>,
+    #[serde(default)]
+    pub allow_foreground_fallback: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RobloxPatrolRegionConfig {
+    pub anchor_millimeters: [i32; 3],
+    pub radius_millimeters: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
@@ -713,6 +747,40 @@ pub struct AdvancedReplayTrace {
     pub command_records: Vec<AdvancedCommandRecord>,
     #[serde(default)]
     pub observations: Vec<AdvancedObservationUpdate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LiveObservationSummary {
+    pub frame_id: u64,
+    pub source: String,
+    pub freshness_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_position_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patrol_region_anchor_millimeters: Option<[i32; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patrol_region_radius_millimeters: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_visible: Option<bool>,
+    #[serde(default)]
+    pub entities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LiveSessionInspection {
+    pub workflow_id: String,
+    pub session_id: AdvancedSessionId,
+    pub lifecycle_state: AdvancedBackendLifecycleState,
+    pub backend: AdvancedProfileBackend,
+    pub attachment_status: AdvancedAttachmentHealthStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation: Option<LiveObservationSummary>,
+    #[serde(default)]
+    pub recent_events: Vec<AdvancedStructuredEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<AdvancedExecutionReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_rejected_command: Option<AdvancedCommandRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -14,17 +14,18 @@ use tracing_subscriber::{EnvFilter, fmt};
 use winr_core::{
     ListWindowsOptions, MouseButton, ProfileRunEvent, ProfileRunOptions, close_window,
     describe_profile_workflow, focus_window, foreground_window, input_keys, input_sequence,
-    input_text, list_windows, load_profile, maximize_window, minimize_window, mouse_click,
-    mouse_click_window_with_mode, move_window, resize_window, restore_window, run_profile,
-    screenshot_desktop, screenshot_window, uia_find, uia_invoke, uia_set_text, uia_tree,
-    window_info,
+    input_text, inspect_live_profile_session, list_windows, load_profile, maximize_window,
+    minimize_window, mouse_click, mouse_click_window_with_mode, move_window, resize_window,
+    restore_window, run_profile, screenshot_desktop, screenshot_window, uia_find, uia_invoke,
+    uia_set_text, uia_tree, window_info,
 };
 use winr_types::{
-    AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, MouseInputMode,
-    ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend, ScreenshotResult,
-    SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo, UiaFindRequest,
-    UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest, UiaTreeResponse,
-    WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
+    AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, LiveSessionInspection,
+    MouseInputMode, ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend,
+    ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo,
+    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode,
+    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
+    format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -153,6 +154,7 @@ enum McpCommand {
 enum ProfileCommand {
     Run(ProfileRunArgs),
     Inspect(ProfileInspectArgs),
+    InspectLive(ProfileInspectArgs),
 }
 
 #[derive(Debug, Args)]
@@ -647,6 +649,11 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                 let summary = describe_profile_workflow(&profile, args.frontend.into());
                 emit(cli.json, &summary)
             }
+            ProfileCommand::InspectLive(args) => {
+                let profile = load_profile(&args.path)?;
+                let summary = inspect_live_profile_session(&profile, args.frontend.into())?;
+                emit(cli.json, &summary)
+            }
         },
         RootCommand::Window { command } => match command {
             WindowCommand::Info(args) => {
@@ -996,6 +1003,78 @@ impl HumanOutput for ProfileWorkflowIntegration {
                 backend.stability,
                 backend.replaceable,
                 backend.app_pack_specific
+            )
+            .map_err(io_error)?;
+        }
+        Ok(())
+    }
+}
+
+impl HumanOutput for LiveSessionInspection {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "workflow_id: {}", self.workflow_id).map_err(io_error)?;
+        writeln!(writer, "session_id: {}", self.session_id.0).map_err(io_error)?;
+        writeln!(writer, "backend: {}", self.backend.as_str()).map_err(io_error)?;
+        writeln!(
+            writer,
+            "lifecycle_state: {}",
+            match self.lifecycle_state {
+                winr_types::AdvancedBackendLifecycleState::Discovered => "discovered",
+                winr_types::AdvancedBackendLifecycleState::Attachable => "attachable",
+                winr_types::AdvancedBackendLifecycleState::Attached => "attached",
+                winr_types::AdvancedBackendLifecycleState::Degraded => "degraded",
+                winr_types::AdvancedBackendLifecycleState::Detached => "detached",
+            }
+        )
+        .map_err(io_error)?;
+        writeln!(
+            writer,
+            "attachment_status: {}",
+            match self.attachment_status {
+                winr_types::AdvancedAttachmentHealthStatus::Healthy => "healthy",
+                winr_types::AdvancedAttachmentHealthStatus::Stale => "stale",
+                winr_types::AdvancedAttachmentHealthStatus::Lost => "lost",
+            }
+        )
+        .map_err(io_error)?;
+        if let Some(observation) = &self.observation {
+            writeln!(writer, "frame_id: {}", observation.frame_id).map_err(io_error)?;
+            writeln!(writer, "source: {}", observation.source).map_err(io_error)?;
+            writeln!(writer, "freshness_ms: {}", observation.freshness_ms).map_err(io_error)?;
+            if let Some(position) = observation.player_position_millimeters {
+                writeln!(
+                    writer,
+                    "player_position_mm: [{}, {}, {}]",
+                    position[0], position[1], position[2]
+                )
+                .map_err(io_error)?;
+            }
+            if let Some(anchor) = observation.patrol_region_anchor_millimeters {
+                writeln!(
+                    writer,
+                    "patrol_anchor_mm: [{}, {}, {}]",
+                    anchor[0], anchor[1], anchor[2]
+                )
+                .map_err(io_error)?;
+            }
+            if let Some(radius) = observation.patrol_region_radius_millimeters {
+                writeln!(writer, "patrol_radius_mm: {}", radius).map_err(io_error)?;
+            }
+            writeln!(
+                writer,
+                "entities: {}",
+                observation.entities.join(", ")
+            )
+            .map_err(io_error)?;
+        }
+        if let Some(reason) = &self.reasoning {
+            writeln!(writer, "reasoning: {}", reason.summary).map_err(io_error)?;
+        }
+        if let Some(rejected) = &self.last_rejected_command {
+            writeln!(
+                writer,
+                "last_rejected_command: {} {}",
+                rejected.command_name, rejected.detail
             )
             .map_err(io_error)?;
         }

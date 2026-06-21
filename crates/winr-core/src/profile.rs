@@ -10,12 +10,15 @@ use tracing::{debug, info, instrument, trace, warn};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-use winr_inject::{prepare_profile_backend_for_frontend, resolve_backend_selection};
+use winr_inject::{
+    LiveRobloxRunOptions, inspect_live_roblox_session, prepare_profile_backend_for_frontend,
+    resolve_backend_selection, run_live_roblox_workflow,
+};
 use winr_types::{
     AdvancedCapabilitySelection, AdvancedFrontend, AdvancedProfileBackend, MouseInputMode,
-    ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector, ProfileMouseButton,
-    ProfileRunResult, ProfileWorkflowIntegration, WindowInfo, WindowSelector, WinrError,
-    WinrResult,
+    LiveSessionInspection, ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector,
+    ProfileMouseButton, ProfileRunResult, ProfileWorkflowIntegration, WindowInfo, WindowSelector,
+    WinrError, WinrResult,
 };
 
 use crate::{
@@ -102,6 +105,21 @@ where
     G: FnMut() -> bool,
 {
     validate_profile(profile)?;
+    if should_run_live_roblox_workflow(profile) {
+        return run_live_roblox_workflow(
+            profile,
+            frontend,
+            LiveRobloxRunOptions {
+                poll_interval: Duration::from_millis(profile_workflow_tick_interval_ms(profile)),
+                max_steps: options.max_triggers,
+            },
+            |count, _inspection| {
+                on_event(ProfileRunEvent::TriggerFired { count });
+            },
+            should_stop,
+        );
+    }
+
     let prepared_detector = prepare_detector(profile.detector.as_ref())?;
     let backend_selection = resolve_backend_selection(profile, frontend);
     let backend_used = backend_selection.resolved;
@@ -338,6 +356,13 @@ pub fn describe_profile_workflow(
     }
 }
 
+pub fn inspect_live_profile_session(
+    profile: &ProfileConfig,
+    frontend: AdvancedFrontend,
+) -> WinrResult<LiveSessionInspection> {
+    inspect_live_roblox_session(profile, frontend)
+}
+
 fn describe_capability_selection(
     profile: &ProfileConfig,
     frontend: AdvancedFrontend,
@@ -345,6 +370,19 @@ fn describe_capability_selection(
     let requirements = winr_inject::capability_requirements_for_profile(profile);
     let catalog = winr_inject::catalog_for_frontend(frontend);
     winr_inject::select_backend_by_capabilities(&catalog, &requirements)
+}
+
+fn should_run_live_roblox_workflow(profile: &ProfileConfig) -> bool {
+    profile.execution.backend == AdvancedProfileBackend::Inject && profile.workflow.is_some()
+}
+
+fn profile_workflow_tick_interval_ms(profile: &ProfileConfig) -> u64 {
+    profile
+        .workflow
+        .as_ref()
+        .map(|workflow| workflow.tick_interval_ms)
+        .filter(|value| *value > 0)
+        .unwrap_or(profile.schedule.every_ms)
 }
 
 fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {

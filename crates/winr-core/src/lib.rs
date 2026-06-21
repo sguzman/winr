@@ -51,8 +51,8 @@ use winr_types::{
 
 pub use config::current_mcp_config;
 pub use profile::{
-    ProfileRunEvent, ProfileRunOptions, describe_profile_workflow, load_profile, run_profile,
-    run_profile_for_frontend,
+    ProfileRunEvent, ProfileRunOptions, describe_profile_workflow, inspect_live_profile_session,
+    load_profile, run_profile, run_profile_for_frontend,
 };
 pub use uia::{uia_find, uia_invoke, uia_set_text, uia_tree};
 

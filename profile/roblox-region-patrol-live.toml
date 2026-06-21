@@ -1,0 +1,49 @@
+[profile]
+id = "roblox-region-patrol-live"
+name = "Roblox Region Patrol Live"
+description = "Memory-first live Roblox patrol workflow over the injected backend surface."
+version = "1"
+
+[target]
+title_contains = "Roblox"
+exe = "RobloxPlayerBeta.exe"
+class_name = "WINDOWSCLIENT"
+
+[execution]
+backend = "inject"
+
+[workflow]
+pack_id = "roblox"
+task = "patrol_region"
+tick_interval_ms = 250
+
+[advanced.roblox]
+memory_schema_path = "packs/roblox/live-memory-schema.example.toml"
+allow_foreground_fallback = false
+
+[advanced.roblox.patrol_region]
+anchor_millimeters = [0, 0, 0]
+radius_millimeters = 2500
+
+[action]
+kind = "mouse_click"
+button = "left"
+click_point = "center"
+
+[schedule]
+mode = "interval"
+every_ms = 250
+random_delta_ms = 0
+run_until_stopped = true
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "live patrol steps: {count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = false
+stop_on_focus_loss = false
+pause_on_focus_loss = false
