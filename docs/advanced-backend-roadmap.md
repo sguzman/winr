@@ -6,18 +6,18 @@ The immediate motivating use case is Roblox, but the backend should be designed 
 
 ## Goals
 
-- [ ] Observe application state beyond ordinary desktop screenshots
-- [ ] Drive input without depending exclusively on foreground `SendInput`
-- [ ] Support higher-level workflows such as movement, approach, patrol, and interaction
-- [ ] Keep the backend general enough to support other custom-rendered apps and games later
-- [ ] Keep the advanced backend alongside the current `winr-core` automation model rather than replacing it
+- [x] Observe application state beyond ordinary desktop screenshots
+- [x] Drive input without depending exclusively on foreground `SendInput`
+- [x] Support higher-level workflows such as movement, approach, patrol, and interaction
+- [x] Keep the backend general enough to support other custom-rendered apps and games later
+- [x] Keep the advanced backend alongside the current `winr-core` automation model rather than replacing it
 
 ## Non-goals
 
-- [ ] Do not collapse the whole project into a Roblox-specific codebase
-- [ ] Do not make Direct3D hooking the only observation path
-- [ ] Do not tie workflow logic directly to raw pixels when stronger signals exist
-- [ ] Do not merge advanced process-side techniques into the same safety assumptions as normal Win32 automation
+- [x] Do not collapse the whole project into a Roblox-specific codebase
+- [x] Do not make Direct3D hooking the only observation path
+- [x] Do not tie workflow logic directly to raw pixels when stronger signals exist
+- [x] Do not merge advanced process-side techniques into the same safety assumptions as normal Win32 automation
 
 ## Target Architecture
 
@@ -226,17 +226,19 @@ See `docs/advanced-backend-phase12-decisions.md` for the concrete decisions reco
 
 ### Short-term
 
-- [ ] Advanced backend can attach to a target and report capabilities
-- [ ] Observation and input paths are separated cleanly
-- [ ] Workflows can choose backend preferences
+- [x] Advanced backend can attach to a target and report capabilities
+- [x] Observation and input paths are separated cleanly
+- [x] Workflows can choose backend preferences
 
 ### Medium-term
 
-- [ ] `winr` can run "see target -> approach -> interact" workflows
-- [ ] Region patrol behavior works
-- [ ] Workflows recover from lost targets or stuck movement
+- [x] `winr` can run "see target -> approach -> interact" workflows
+- [x] Region patrol behavior works
+- [x] Workflows recover from lost targets or stuck movement
 
 ### Long-term
 
-- [ ] The same high-level workflow model can target classic windows, custom-rendered apps, and games
-- [ ] Roblox-specific logic stays in specialization layers instead of dominating the core architecture
+- [x] The same high-level workflow model can target classic windows, custom-rendered apps, and games
+- [x] Roblox-specific logic stays in specialization layers instead of dominating the core architecture
+
+See `docs/advanced-backend-roadmap-completion.md` for the final closure rationale for these top-level goals, non-goals, and success criteria.
