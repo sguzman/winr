@@ -153,6 +153,154 @@ pub struct WorkflowExecutionTrace {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+pub enum WorkflowDslVersion {
+    V1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowNodeKind {
+    Detect,
+    Act,
+    Branch,
+    Wait,
+    Recover,
+    Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowConditionOperator {
+    Exists,
+    NotExists,
+    ConfidenceAtLeast,
+    LostForFramesAtLeast,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DeclarativeDetector {
+    TemplateMatch {
+        detector_id: String,
+        entity_kind: EntityKind,
+    },
+    ColorCluster {
+        detector_id: String,
+        entity_kind: EntityKind,
+    },
+    Ocr {
+        detector_id: String,
+        entity_kind: EntityKind,
+    },
+    ObjectDetection {
+        detector_id: String,
+        entity_kind: EntityKind,
+    },
+    MemoryEntity {
+        detector_id: String,
+        entity_kind: EntityKind,
+    },
+    RenderEntity {
+        detector_id: String,
+        entity_kind: EntityKind,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowCondition {
+    pub entity_kind: EntityKind,
+    pub operator: WorkflowConditionOperator,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowRetryPolicy {
+    pub max_attempts: u32,
+    pub cooldown_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowCooldown {
+    pub cooldown_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowBackendPreference {
+    #[serde(default)]
+    pub preferred_backends: Vec<AdvancedProfileBackend>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorkflowRecoveryStep {
+    RetryCurrentNode,
+    RunController {
+        controller: NavigationControllerKind,
+    },
+    EmitAction {
+        action: SemanticInputAction,
+    },
+    ResumePreviousTask,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorkflowStep {
+    Detector {
+        detector: DeclarativeDetector,
+    },
+    Action {
+        action: SemanticInputAction,
+    },
+    Condition {
+        condition: WorkflowCondition,
+    },
+    Recovery {
+        step: WorkflowRecoveryStep,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowNode {
+    pub id: String,
+    pub name: String,
+    pub kind: WorkflowNodeKind,
+    #[serde(default)]
+    pub steps: Vec<WorkflowStep>,
+    #[serde(default)]
+    pub next: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<WorkflowRetryPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cooldown: Option<WorkflowCooldown>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowTaskRecipe {
+    pub id: String,
+    pub kind: WorkflowTaskKind,
+    #[serde(default)]
+    pub detectors: Vec<DeclarativeDetector>,
+    #[serde(default)]
+    pub recovery: Vec<WorkflowRecoveryStep>,
+    #[serde(default)]
+    pub action_graph: Vec<WorkflowNode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_preference: Option<WorkflowBackendPreference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WorkflowDslDocument {
+    pub version: WorkflowDslVersion,
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub tasks: Vec<WorkflowTaskRecipe>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum NavigationControllerKind {
     RotateTowardTarget,
     ApproachUntilThreshold,
@@ -277,6 +425,149 @@ pub trait AppWorkflowPack {
 pub trait WorkflowPlanner {
     fn can_plan(&self, frame: &ObservationFrame) -> bool;
     fn plan(&self, frame: &ObservationFrame, task: WorkflowTaskKind) -> Option<WorkflowPlan>;
+}
+
+impl DeclarativeDetector {
+    pub fn to_descriptor(&self) -> DetectorDescriptor {
+        match self {
+            Self::TemplateMatch { detector_id, .. } => DetectorDescriptor {
+                id: detector_id.clone(),
+                name: detector_id.clone(),
+                kind: winr_perception::DetectorKind::TemplateMatch,
+            },
+            Self::ColorCluster { detector_id, .. } => DetectorDescriptor {
+                id: detector_id.clone(),
+                name: detector_id.clone(),
+                kind: winr_perception::DetectorKind::ColorCluster,
+            },
+            Self::Ocr { detector_id, .. } => DetectorDescriptor {
+                id: detector_id.clone(),
+                name: detector_id.clone(),
+                kind: winr_perception::DetectorKind::Ocr,
+            },
+            Self::ObjectDetection { detector_id, .. } => DetectorDescriptor {
+                id: detector_id.clone(),
+                name: detector_id.clone(),
+                kind: winr_perception::DetectorKind::ObjectDetection,
+            },
+            Self::MemoryEntity { detector_id, .. } => DetectorDescriptor {
+                id: detector_id.clone(),
+                name: detector_id.clone(),
+                kind: winr_perception::DetectorKind::MemoryEntity,
+            },
+            Self::RenderEntity { detector_id, .. } => DetectorDescriptor {
+                id: detector_id.clone(),
+                name: detector_id.clone(),
+                kind: winr_perception::DetectorKind::RenderEntity,
+            },
+        }
+    }
+
+    pub fn entity_kind(&self) -> EntityKind {
+        match self {
+            Self::TemplateMatch { entity_kind, .. }
+            | Self::ColorCluster { entity_kind, .. }
+            | Self::Ocr { entity_kind, .. }
+            | Self::ObjectDetection { entity_kind, .. }
+            | Self::MemoryEntity { entity_kind, .. }
+            | Self::RenderEntity { entity_kind, .. } => *entity_kind,
+        }
+    }
+}
+
+impl WorkflowDslDocument {
+    pub fn task(&self, kind: WorkflowTaskKind) -> Option<&WorkflowTaskRecipe> {
+        self.tasks.iter().find(|task| task.kind == kind)
+    }
+}
+
+impl WorkflowTaskRecipe {
+    pub fn compile_plan(&self) -> WorkflowPlan {
+        WorkflowPlan {
+            pack_id: self.id.clone(),
+            task: WorkflowTaskDefinition {
+                id: self.id.clone(),
+                name: self.id.clone(),
+                kind: self.kind,
+            },
+            required_detectors: self
+                .detectors
+                .iter()
+                .map(DeclarativeDetector::to_descriptor)
+                .collect(),
+            required_entity_kinds: self
+                .detectors
+                .iter()
+                .map(DeclarativeDetector::entity_kind)
+                .collect(),
+            intents: self
+                .action_graph
+                .iter()
+                .flat_map(|node| node.steps.iter())
+                .filter_map(|step| match step {
+                    WorkflowStep::Action { action } => Some(WorkflowIntentDefinition {
+                        kind: workflow_intent_kind_for_action(action),
+                        description: format!("compiled from node action '{}'", self.id),
+                        semantic_action: Some(action.clone()),
+                        sink_preference: None,
+                    }),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
+    pub fn evaluate_conditions(&self, world_model: &WorldModel) -> bool {
+        self.action_graph
+            .iter()
+            .flat_map(|node| node.steps.iter())
+            .all(|step| match step {
+                WorkflowStep::Condition { condition } => evaluate_condition(condition, world_model),
+                _ => true,
+            })
+    }
+}
+
+pub fn next_nodes<'a>(recipe: &'a WorkflowTaskRecipe, node_id: &str) -> Vec<&'a WorkflowNode> {
+    let Some(node) = recipe.action_graph.iter().find(|node| node.id == node_id) else {
+        return Vec::new();
+    };
+
+    node.next
+        .iter()
+        .filter_map(|next_id| recipe.action_graph.iter().find(|candidate| candidate.id == *next_id))
+        .collect()
+}
+
+fn evaluate_condition(condition: &WorkflowCondition, world_model: &WorldModel) -> bool {
+    let entity = world_model.best_entity(condition.entity_kind);
+    match condition.operator {
+        WorkflowConditionOperator::Exists => entity.is_some(),
+        WorkflowConditionOperator::NotExists => entity.is_none(),
+        WorkflowConditionOperator::ConfidenceAtLeast => entity.is_some_and(|entity| {
+            entity.smoothed_confidence * 100.0 >= condition.threshold.unwrap_or(0) as f32
+        }),
+        WorkflowConditionOperator::LostForFramesAtLeast => entity.is_some_and(|entity| {
+            entity.missed_frames >= condition.threshold.unwrap_or(0)
+        }),
+    }
+}
+
+fn workflow_intent_kind_for_action(action: &SemanticInputAction) -> WorkflowIntentKind {
+    match action {
+        SemanticInputAction::MoveForward { .. } => WorkflowIntentKind::MoveForward,
+        SemanticInputAction::MoveBackward { .. } => WorkflowIntentKind::MoveBackward,
+        SemanticInputAction::StrafeLeft { .. } => WorkflowIntentKind::StrafeLeft,
+        SemanticInputAction::StrafeRight { .. } => WorkflowIntentKind::StrafeRight,
+        SemanticInputAction::Turn { .. } => WorkflowIntentKind::Turn,
+        SemanticInputAction::LookPitch { .. } => WorkflowIntentKind::LookPitch,
+        SemanticInputAction::Jump => WorkflowIntentKind::Jump,
+        SemanticInputAction::Interact => WorkflowIntentKind::Interact,
+        SemanticInputAction::Hold { .. } => WorkflowIntentKind::Interact,
+        SemanticInputAction::StopMotion => WorkflowIntentKind::StopMotion,
+        SemanticInputAction::Approach { .. } => WorkflowIntentKind::ApproachTarget,
+        SemanticInputAction::WalkTo { .. } => WorkflowIntentKind::WalkToRegionOrEntity,
+    }
 }
 
 pub fn select_prioritized_entity_id(
@@ -735,6 +1026,159 @@ mod tests {
     struct RobloxPack;
 
     struct EntityOnlyPlanner;
+
+    fn sample_dsl() -> WorkflowDslDocument {
+        WorkflowDslDocument {
+            version: WorkflowDslVersion::V1,
+            id: "roblox-harvest".to_string(),
+            name: "Roblox Harvest".to_string(),
+            tasks: vec![
+                WorkflowTaskRecipe {
+                    id: "search-for-rock".to_string(),
+                    kind: WorkflowTaskKind::SearchFor,
+                    detectors: vec![DeclarativeDetector::TemplateMatch {
+                        detector_id: "rock-template".to_string(),
+                        entity_kind: EntityKind::Interactable,
+                    }],
+                    recovery: vec![WorkflowRecoveryStep::RetryCurrentNode],
+                    action_graph: vec![
+                        WorkflowNode {
+                            id: "detect-rock".to_string(),
+                            name: "Detect Rock".to_string(),
+                            kind: WorkflowNodeKind::Detect,
+                            steps: vec![WorkflowStep::Condition {
+                                condition: WorkflowCondition {
+                                    entity_kind: EntityKind::Interactable,
+                                    operator: WorkflowConditionOperator::Exists,
+                                    threshold: None,
+                                },
+                            }],
+                            next: vec!["approach-rock".to_string()],
+                            retry: Some(WorkflowRetryPolicy {
+                                max_attempts: 3,
+                                cooldown_ms: 250,
+                            }),
+                            cooldown: Some(WorkflowCooldown { cooldown_ms: 50 }),
+                        },
+                        WorkflowNode {
+                            id: "approach-rock".to_string(),
+                            name: "Approach Rock".to_string(),
+                            kind: WorkflowNodeKind::Act,
+                            steps: vec![WorkflowStep::Action {
+                                action: SemanticInputAction::Approach {
+                                    target: SemanticInputTarget::EntityId {
+                                        entity_id: "rock-1".to_string(),
+                                    },
+                                },
+                            }],
+                            next: vec!["wait-for-prompt".to_string()],
+                            retry: None,
+                            cooldown: None,
+                        },
+                        WorkflowNode {
+                            id: "wait-for-prompt".to_string(),
+                            name: "Wait For Prompt".to_string(),
+                            kind: WorkflowNodeKind::Branch,
+                            steps: vec![WorkflowStep::Condition {
+                                condition: WorkflowCondition {
+                                    entity_kind: EntityKind::Prompt,
+                                    operator: WorkflowConditionOperator::Exists,
+                                    threshold: None,
+                                },
+                            }],
+                            next: vec!["interact".to_string(), "recover".to_string()],
+                            retry: None,
+                            cooldown: Some(WorkflowCooldown { cooldown_ms: 200 }),
+                        },
+                        WorkflowNode {
+                            id: "interact".to_string(),
+                            name: "Interact".to_string(),
+                            kind: WorkflowNodeKind::Act,
+                            steps: vec![WorkflowStep::Action {
+                                action: SemanticInputAction::Interact,
+                            }],
+                            next: vec!["resume-patrol".to_string()],
+                            retry: None,
+                            cooldown: None,
+                        },
+                        WorkflowNode {
+                            id: "recover".to_string(),
+                            name: "Recover".to_string(),
+                            kind: WorkflowNodeKind::Recover,
+                            steps: vec![WorkflowStep::Recovery {
+                                step: WorkflowRecoveryStep::RunController {
+                                    controller: NavigationControllerKind::NoProgressRecovery,
+                                },
+                            }],
+                            next: vec!["resume-patrol".to_string()],
+                            retry: Some(WorkflowRetryPolicy {
+                                max_attempts: 2,
+                                cooldown_ms: 500,
+                            }),
+                            cooldown: None,
+                        },
+                        WorkflowNode {
+                            id: "resume-patrol".to_string(),
+                            name: "Resume Patrol".to_string(),
+                            kind: WorkflowNodeKind::Act,
+                            steps: vec![WorkflowStep::Action {
+                                action: SemanticInputAction::WalkTo {
+                                    target: SemanticInputTarget::RegionId {
+                                        region_id: "dirt-patch-1".to_string(),
+                                    },
+                                },
+                            }],
+                            next: vec!["complete".to_string()],
+                            retry: None,
+                            cooldown: None,
+                        },
+                        WorkflowNode {
+                            id: "complete".to_string(),
+                            name: "Complete".to_string(),
+                            kind: WorkflowNodeKind::Complete,
+                            steps: Vec::new(),
+                            next: Vec::new(),
+                            retry: None,
+                            cooldown: None,
+                        },
+                    ],
+                    backend_preference: Some(WorkflowBackendPreference {
+                        preferred_backends: vec![
+                            AdvancedProfileBackend::Inject,
+                            AdvancedProfileBackend::Foreground,
+                        ],
+                    }),
+                },
+                WorkflowTaskRecipe {
+                    id: "patrol-region".to_string(),
+                    kind: WorkflowTaskKind::PatrolRegion,
+                    detectors: vec![DeclarativeDetector::MemoryEntity {
+                        detector_id: "region-memory".to_string(),
+                        entity_kind: EntityKind::Region,
+                    }],
+                    recovery: vec![WorkflowRecoveryStep::ResumePreviousTask],
+                    action_graph: vec![WorkflowNode {
+                        id: "patrol".to_string(),
+                        name: "Patrol".to_string(),
+                        kind: WorkflowNodeKind::Act,
+                        steps: vec![WorkflowStep::Action {
+                            action: SemanticInputAction::WalkTo {
+                                target: SemanticInputTarget::RegionId {
+                                    region_id: "dirt-patch-1".to_string(),
+                                },
+                            },
+                        }],
+                        next: Vec::new(),
+                        retry: None,
+                        cooldown: None,
+                    }],
+                    backend_preference: Some(WorkflowBackendPreference {
+                        preferred_backends: vec![AdvancedProfileBackend::Inject],
+                    }),
+                },
+            ],
+        }
+    }
 
     impl AppWorkflowPack for RobloxPack {
         fn manifest(&self) -> AppPackManifest {
@@ -1210,5 +1654,94 @@ mod tests {
             SemanticInputAction::Approach { .. }
         ));
         assert_eq!(interact_decision.actions, vec![SemanticInputAction::Interact]);
+    }
+
+    #[test]
+    fn dsl_compiles_declarative_recipe_into_plan() {
+        let dsl = sample_dsl();
+        let recipe = dsl
+            .task(WorkflowTaskKind::SearchFor)
+            .expect("search task should exist");
+        let plan = recipe.compile_plan();
+
+        assert_eq!(plan.required_detectors.len(), 1);
+        assert_eq!(plan.required_entity_kinds, vec![EntityKind::Interactable]);
+        assert!(plan
+            .intents
+            .iter()
+            .any(|intent| matches!(intent.semantic_action, Some(SemanticInputAction::Approach { .. }))));
+        assert!(plan
+            .intents
+            .iter()
+            .any(|intent| matches!(intent.semantic_action, Some(SemanticInputAction::Interact))));
+    }
+
+    #[test]
+    fn dsl_supports_conditions_branching_retries_and_cooldowns() {
+        let dsl = sample_dsl();
+        let recipe = dsl
+            .task(WorkflowTaskKind::SearchFor)
+            .expect("search task should exist");
+        let detect = recipe
+            .action_graph
+            .iter()
+            .find(|node| node.id == "detect-rock")
+            .expect("detect node should exist");
+        let wait = recipe
+            .action_graph
+            .iter()
+            .find(|node| node.id == "wait-for-prompt")
+            .expect("wait node should exist");
+
+        assert!(matches!(detect.kind, WorkflowNodeKind::Detect));
+        assert_eq!(detect.retry.as_ref().expect("retry should exist").max_attempts, 3);
+        assert_eq!(wait.next.len(), 2);
+        assert_eq!(wait.cooldown.as_ref().expect("cooldown should exist").cooldown_ms, 200);
+    }
+
+    #[test]
+    fn dsl_evaluates_conditions_and_recovery_steps() {
+        let dsl = sample_dsl();
+        let recipe = dsl
+            .task(WorkflowTaskKind::SearchFor)
+            .expect("search task should exist");
+        let world_model = sample_world_model();
+
+        assert!(recipe.evaluate_conditions(&world_model));
+        assert!(matches!(
+            recipe.recovery[0],
+            WorkflowRecoveryStep::RetryCurrentNode
+        ));
+        assert_eq!(
+            recipe.backend_preference
+                .as_ref()
+                .expect("backend preference should exist")
+                .preferred_backends[0],
+            AdvancedProfileBackend::Inject
+        );
+    }
+
+    #[test]
+    fn dsl_supports_task_concepts_and_behavior_graphs() {
+        let dsl = sample_dsl();
+        let search = dsl
+            .task(WorkflowTaskKind::SearchFor)
+            .expect("search task should exist");
+        let patrol = dsl
+            .task(WorkflowTaskKind::PatrolRegion)
+            .expect("patrol task should exist");
+
+        let next = next_nodes(search, "wait-for-prompt");
+        assert_eq!(next.len(), 2);
+        assert_eq!(patrol.kind, WorkflowTaskKind::PatrolRegion);
+        assert!(patrol
+            .action_graph
+            .iter()
+            .any(|node| node.steps.iter().any(|step| matches!(
+                step,
+                WorkflowStep::Action {
+                    action: SemanticInputAction::WalkTo { .. }
+                }
+            ))));
     }
 }

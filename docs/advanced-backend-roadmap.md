@@ -164,17 +164,19 @@ See `docs/advanced-backend-phase8-decisions.md` for the concrete decisions recor
 
 ## Phase 9: Workflow DSL
 
-- [ ] Design a richer workflow language beyond the current profile model
-- [ ] Support declarative detectors
-- [ ] Support action graphs
-- [ ] Support conditions
-- [ ] Support retries
-- [ ] Support branching
-- [ ] Support cooldowns
-- [ ] Support recovery steps
-- [ ] Support backend preferences
-- [ ] Support task concepts such as `search_for`, `approach`, `patrol_region`, `interact_until`, `wait_for_prompt`, `resume_previous_task`, and `recover_if_stuck`
-- [ ] Support target behaviors such as patrol within a detected dirt patch, approach a high-confidence rock, interact until completion, and return to patrol if the target disappears
+- [x] Design a richer workflow language beyond the current profile model
+- [x] Support declarative detectors
+- [x] Support action graphs
+- [x] Support conditions
+- [x] Support retries
+- [x] Support branching
+- [x] Support cooldowns
+- [x] Support recovery steps
+- [x] Support backend preferences
+- [x] Support task concepts such as `search_for`, `approach`, `patrol_region`, `interact_until`, `wait_for_prompt`, `resume_previous_task`, and `recover_if_stuck`
+- [x] Support target behaviors such as patrol within a detected dirt patch, approach a high-confidence rock, interact until completion, and return to patrol if the target disappears
+
+See `docs/advanced-backend-phase9-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 10: Roblox Specialization
 
@@ -210,7 +212,7 @@ See `docs/advanced-backend-phase8-decisions.md` for the concrete decisions recor
 - [x] Define host-agent split and protocol
 - [x] Define normalized observation frame model
 - [x] Define semantic input action model
-- [ ] Design workflow DSL v2
+- [x] Design workflow DSL v2
 - [x] Build simple navigation controllers
 - [ ] Add app-specific packs starting with Roblox
 
