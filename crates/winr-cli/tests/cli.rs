@@ -356,3 +356,67 @@ stop_on_focus_loss = true
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"], "WindowNotFound");
 }
+
+#[test]
+fn profile_inspect_reports_shared_workflow_integration() {
+    let profile_path = temp_profile_path();
+    fs::write(
+        &profile_path,
+        r#"
+[profile]
+id = "inspect-profile"
+name = "Inspect Profile"
+description = "Used for integration inspection"
+version = "1"
+
+[target]
+title_contains = "Roblox"
+exe = "RobloxPlayerBeta.exe"
+
+[action]
+kind = "mouse_click"
+button = "left"
+
+[schedule]
+mode = "interval"
+every_ms = 50
+
+[logging]
+level = "info"
+mode = "single_line_counter"
+update_every_trigger = true
+template = "count={count}"
+
+[safety]
+require_visible_window = true
+require_foreground_window = true
+stop_on_focus_loss = true
+"#,
+    )
+    .expect("failed to write temp profile");
+
+    let output = run_winr(&[
+        "--json",
+        "profile",
+        "inspect",
+        profile_path
+            .to_str()
+            .expect("temp profile path should be valid"),
+        "--frontend",
+        "mcp",
+    ]);
+
+    let _ = fs::remove_file(&profile_path);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["workflow_surface"], "profile_v1");
+    assert_eq!(json["data"]["frontend"], "mcp");
+    assert_eq!(json["data"]["backend_selection"]["requested"], "auto");
+    assert!(json["data"]["available_backends"].is_array());
+}

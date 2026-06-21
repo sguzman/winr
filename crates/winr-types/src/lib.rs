@@ -524,6 +524,19 @@ pub struct AdvancedBackendSelection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileWorkflowIntegration {
+    pub workflow_id: String,
+    pub workflow_name: String,
+    pub workflow_surface: String,
+    pub frontend: AdvancedFrontend,
+    pub target: AdvancedTargetRef,
+    pub backend_selection: AdvancedBackendSelection,
+    pub capability_selection: AdvancedCapabilitySelection,
+    #[serde(default)]
+    pub available_backends: Vec<AdvancedBackendDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AdvancedBackendHello {
     pub protocol_version: u32,
     pub backend: AdvancedProfileBackend,
@@ -1315,5 +1328,58 @@ mod tests {
         assert!(trace_json.contains("\"observation_stale\""));
         assert!(summary_json.contains("\"stale_observation\":true"));
         assert!(summary_json.contains("\"recent_reason\""));
+    }
+
+    #[test]
+    fn serializes_profile_workflow_integration() {
+        let integration = ProfileWorkflowIntegration {
+            workflow_id: "demo".to_string(),
+            workflow_name: "Demo".to_string(),
+            workflow_surface: "profile_v1".to_string(),
+            frontend: AdvancedFrontend::Mcp,
+            target: AdvancedTargetRef {
+                hwnd: None,
+                pid: None,
+                exe: Some("RobloxPlayerBeta.exe".to_string()),
+                window_class: None,
+                title_hint: Some("Roblox".to_string()),
+            },
+            backend_selection: AdvancedBackendSelection {
+                frontend: AdvancedFrontend::Mcp,
+                requested: AdvancedProfileBackend::Auto,
+                resolved: AdvancedProfileBackend::Foreground,
+                reason: AdvancedBackendSelectionReason::AutoDefaultForeground,
+                opt_in_mode: AdvancedBackendOptInMode::AutoDetectFromProfile,
+                advanced_backend_requested: false,
+            },
+            capability_selection: AdvancedCapabilitySelection {
+                requirements: AdvancedCapabilityRequirements {
+                    foreground_input: true,
+                    ..Default::default()
+                },
+                matches: vec![AdvancedCapabilityMatch {
+                    backend: AdvancedProfileBackend::Foreground,
+                    satisfies_requirements: true,
+                    score: 1,
+                }],
+                selected_backend: Some(AdvancedProfileBackend::Foreground),
+            },
+            available_backends: vec![AdvancedBackendDescriptor {
+                backend: AdvancedProfileBackend::Foreground,
+                stability: AdvancedBackendStability::Stable,
+                capabilities: AdvancedBackendCapabilities {
+                    foreground_input: true,
+                    ..Default::default()
+                },
+                replaceable: false,
+                app_pack_specific: false,
+                notes: vec!["desktop".to_string()],
+            }],
+        };
+
+        let json = serde_json::to_string(&integration).unwrap();
+        assert!(json.contains("\"workflow_surface\":\"profile_v1\""));
+        assert!(json.contains("\"frontend\":\"mcp\""));
+        assert!(json.contains("\"available_backends\""));
     }
 }

@@ -1,11 +1,8 @@
-use winr_types::{
-    AdvancedAgentEvent, AdvancedBackendErrorKind, AdvancedHostResponse, ProfileConfig, WinrResult,
-};
+use winr_types::{AdvancedAgentEvent, AdvancedHostResponse, ProfileConfig, WinrResult};
 
 use crate::{
-    AdvancedAgentTransport, AdvancedBackendSession, AttachmentSupervisor, advanced_error,
-    discover_profile_targets, prepare_profile_backend, resolve_attachable_target,
-    selector_into_target_ref,
+    AdvancedAgentTransport, AdvancedBackendSession, AttachmentSupervisor, discover_profile_targets,
+    prepare_profile_backend_for_frontend, resolve_attachable_target, selector_into_target_ref,
 };
 
 #[derive(Debug)]
@@ -21,7 +18,8 @@ where
     TTransport: AdvancedAgentTransport,
 {
     pub fn attach(profile: &ProfileConfig, transport: TTransport) -> WinrResult<Self> {
-        let session = prepare_profile_backend(profile)?;
+        let session =
+            prepare_profile_backend_for_frontend(profile, winr_types::AdvancedFrontend::Cli)?;
         let target = resolve_attachable_target(&discover_profile_targets(profile)?)?;
         let (attachment, _) = AttachmentSupervisor::attach(
             &profile.target,
@@ -44,12 +42,16 @@ where
     }
 
     pub fn request_capabilities(&mut self) -> WinrResult<()> {
-        let command = self.session_command(winr_types::AdvancedHostCommand::GetCapabilities);
+        let command = self
+            .session
+            .command(winr_types::AdvancedHostCommand::GetCapabilities);
         self.transport.send_command(command)
     }
 
     pub fn subscribe_events(&mut self) -> WinrResult<()> {
-        let command = self.session_command(winr_types::AdvancedHostCommand::SubscribeEvents);
+        let command = self
+            .session
+            .command(winr_types::AdvancedHostCommand::SubscribeEvents);
         self.transport.send_command(command)
     }
 
@@ -70,14 +72,7 @@ where
     pub fn poll_responses(&mut self) -> WinrResult<Vec<AdvancedHostResponse>> {
         let mut responses = Vec::new();
         while let Some(envelope) = self.transport.recv_response()? {
-            if envelope.session_id != self.session.session_id {
-                return Err(advanced_error(
-                    AdvancedBackendErrorKind::ResponseMismatch,
-                    self.session.hello.backend,
-                    "advanced backend response session mismatch".to_string(),
-                    Some(self.session.hello.lifecycle_state),
-                ));
-            }
+            self.session.apply_response(&envelope)?;
             responses.push(envelope.response);
         }
         Ok(responses)
@@ -94,18 +89,5 @@ where
 
     pub fn fallback_target_ref(&self) -> winr_types::AdvancedTargetRef {
         selector_into_target_ref(&self.profile.target)
-    }
-
-    fn session_command(
-        &mut self,
-        command: winr_types::AdvancedHostCommand,
-    ) -> winr_types::AdvancedHostCommandEnvelope {
-        let envelope = winr_types::AdvancedHostCommandEnvelope {
-            session_id: self.session.session_id,
-            sequence: self.session.next_host_sequence,
-            command,
-        };
-        self.session.next_host_sequence.0 += 1;
-        envelope
     }
 }

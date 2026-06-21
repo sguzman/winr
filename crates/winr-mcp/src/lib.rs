@@ -13,20 +13,24 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
 use winr_core::{
-    ListWindowsOptions, current_mcp_config, focus_window as core_focus_window,
+    ListWindowsOptions, ProfileRunOptions, current_mcp_config,
+    describe_profile_workflow as core_describe_profile_workflow, focus_window as core_focus_window,
     input_keys as core_input_keys, input_text as core_input_text,
-    list_windows as core_list_windows, mouse_click as core_mouse_click,
+    list_windows as core_list_windows, load_profile as core_load_profile,
+    mouse_click as core_mouse_click,
     mouse_click_window_with_mode as core_mouse_click_window_with_mode,
     move_window as core_move_window, restore_window as core_restore_window,
+    run_profile_for_frontend as core_run_profile_for_frontend,
     screenshot_window as core_screenshot_window, uia_find as core_uia_find,
     uia_invoke as core_uia_invoke, uia_set_text as core_uia_set_text, uia_tree as core_uia_tree,
     window_info as core_window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, InputMode, MouseInputMode, ScreenshotBackend,
-    ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest,
-    UiaFindResponse, UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult,
-    WindowInfo, WindowSelector, WinrError,
+    AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, MouseInputMode,
+    ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend, ScreenshotResult,
+    SuccessResponse, UiaActionRequest, UiaActionResult, UiaFindRequest, UiaFindResponse,
+    UiaSetTextRequest, UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo,
+    WindowSelector, WinrError,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -101,6 +105,26 @@ pub struct MouseClickParams {
     pub input_mode: Option<MouseInputMode>,
     #[serde(default = "default_true")]
     pub focus_first: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileInspectParams {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProfileRunParams {
+    pub path: String,
+    #[serde(default)]
+    pub wait_timeout_ms: Option<u64>,
+    #[serde(default = "default_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+    #[serde(default)]
+    pub max_clicks: Option<u64>,
+    #[serde(default)]
+    pub focus_target: bool,
+    #[serde(default)]
+    pub arm_delay_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
@@ -301,6 +325,48 @@ impl WinrMcpServer {
     }
 
     #[rmcp::tool(
+        name = "profile_inspect",
+        description = "Inspect how a profile workflow resolves across backends for the MCP frontend"
+    )]
+    #[instrument(skip(self, params))]
+    async fn profile_inspect(
+        &self,
+        Parameters(params): Parameters<ProfileInspectParams>,
+    ) -> McpToolResult<ProfileWorkflowIntegration> {
+        from_winr(
+            core_load_profile(PathBuf::from(&params.path).as_path())
+                .map(|profile| core_describe_profile_workflow(&profile, AdvancedFrontend::Mcp)),
+        )
+    }
+
+    #[rmcp::tool(
+        name = "profile_run",
+        description = "Run a profile workflow through the shared backend selection path"
+    )]
+    #[instrument(skip(self, params))]
+    async fn profile_run(
+        &self,
+        Parameters(params): Parameters<ProfileRunParams>,
+    ) -> McpToolResult<ProfileRunResult> {
+        let path = PathBuf::from(&params.path);
+        from_winr(core_load_profile(path.as_path()).and_then(|profile| {
+            core_run_profile_for_frontend(
+                &profile,
+                ProfileRunOptions {
+                    wait_timeout: params.wait_timeout_ms.map(std::time::Duration::from_millis),
+                    poll_interval: std::time::Duration::from_millis(params.poll_interval_ms),
+                    max_triggers: params.max_clicks,
+                    focus_target: params.focus_target,
+                    arm_delay: std::time::Duration::from_millis(params.arm_delay_ms),
+                },
+                AdvancedFrontend::Mcp,
+                |_| {},
+                || false,
+            )
+        }))
+    }
+
+    #[rmcp::tool(
         name = "uia_tree",
         description = "Read the UI Automation tree for a window"
     )]
@@ -416,4 +482,8 @@ fn default_screenshot_path() -> PathBuf {
 
 const fn default_true() -> bool {
     true
+}
+
+const fn default_poll_interval_ms() -> u64 {
+    250
 }

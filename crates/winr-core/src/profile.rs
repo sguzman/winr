@@ -10,11 +10,12 @@ use tracing::{debug, info, instrument, trace, warn};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-use winr_inject::{prepare_profile_backend, resolve_backend_selection};
+use winr_inject::{prepare_profile_backend_for_frontend, resolve_backend_selection};
 use winr_types::{
-    AdvancedFrontend, AdvancedProfileBackend, MouseInputMode, ProfileAction, ProfileClickPoint,
-    ProfileConfig, ProfileDetector, ProfileMouseButton, ProfileRunResult, WindowInfo,
-    WindowSelector, WinrError, WinrResult,
+    AdvancedCapabilitySelection, AdvancedFrontend, AdvancedProfileBackend, MouseInputMode,
+    ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector, ProfileMouseButton,
+    ProfileRunResult, ProfileWorkflowIntegration, WindowInfo, WindowSelector, WinrError,
+    WinrResult,
 };
 
 use crate::{
@@ -72,6 +73,27 @@ pub fn parse_profile(raw: &str) -> WinrResult<ProfileConfig> {
 pub fn run_profile<F, G>(
     profile: &ProfileConfig,
     options: ProfileRunOptions,
+    on_event: F,
+    should_stop: G,
+) -> WinrResult<ProfileRunResult>
+where
+    F: FnMut(ProfileRunEvent),
+    G: FnMut() -> bool,
+{
+    run_profile_for_frontend(
+        profile,
+        options,
+        AdvancedFrontend::Cli,
+        on_event,
+        should_stop,
+    )
+}
+
+#[instrument(skip(profile, on_event, should_stop))]
+pub fn run_profile_for_frontend<F, G>(
+    profile: &ProfileConfig,
+    options: ProfileRunOptions,
+    frontend: AdvancedFrontend,
     mut on_event: F,
     mut should_stop: G,
 ) -> WinrResult<ProfileRunResult>
@@ -81,7 +103,7 @@ where
 {
     validate_profile(profile)?;
     let prepared_detector = prepare_detector(profile.detector.as_ref())?;
-    let backend_selection = resolve_backend_selection(profile, AdvancedFrontend::Cli);
+    let backend_selection = resolve_backend_selection(profile, frontend);
     let backend_used = backend_selection.resolved;
 
     info!(
@@ -92,7 +114,7 @@ where
     );
 
     if backend_used == AdvancedProfileBackend::Inject {
-        let _ = prepare_profile_backend(profile)?;
+        let _ = prepare_profile_backend_for_frontend(profile, frontend)?;
     }
 
     let started_at = Instant::now();
@@ -289,6 +311,40 @@ where
         backend_used,
         target_window: target,
     })
+}
+
+pub fn describe_profile_workflow(
+    profile: &ProfileConfig,
+    frontend: AdvancedFrontend,
+) -> ProfileWorkflowIntegration {
+    let backend_selection = resolve_backend_selection(profile, frontend);
+    let capability_selection = describe_capability_selection(profile, frontend);
+
+    ProfileWorkflowIntegration {
+        workflow_id: profile.profile.id.clone(),
+        workflow_name: profile.profile.name.clone(),
+        workflow_surface: "profile_v1".to_string(),
+        frontend,
+        target: winr_types::AdvancedTargetRef {
+            hwnd: profile.target.hwnd.clone(),
+            pid: profile.target.pid,
+            exe: profile.target.exe.clone(),
+            window_class: profile.target.class_name.clone(),
+            title_hint: profile.target.title_contains.clone(),
+        },
+        backend_selection,
+        capability_selection: capability_selection.clone(),
+        available_backends: winr_inject::catalog_for_frontend(frontend).backends,
+    }
+}
+
+fn describe_capability_selection(
+    profile: &ProfileConfig,
+    frontend: AdvancedFrontend,
+) -> AdvancedCapabilitySelection {
+    let requirements = winr_inject::capability_requirements_for_profile(profile);
+    let catalog = winr_inject::catalog_for_frontend(frontend);
+    winr_inject::select_backend_by_capabilities(&catalog, &requirements)
 }
 
 fn validate_profile(profile: &ProfileConfig) -> WinrResult<()> {
@@ -985,6 +1041,25 @@ pause_on_focus_loss = false
         profile.safety.pause_on_focus_loss = true;
         let error = validate_profile(&profile).unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn profile_workflow_description_uses_shared_selection_surface() {
+        let profile = sample_profile();
+        let integration = describe_profile_workflow(&profile, AdvancedFrontend::Mcp);
+
+        assert_eq!(integration.workflow_id, "demo");
+        assert_eq!(integration.workflow_surface, "profile_v1");
+        assert_eq!(integration.frontend, AdvancedFrontend::Mcp);
+        assert_eq!(
+            integration.backend_selection.frontend,
+            AdvancedFrontend::Mcp
+        );
+        assert_eq!(
+            integration.capability_selection.selected_backend,
+            Some(AdvancedProfileBackend::Foreground)
+        );
+        assert!(!integration.available_backends.is_empty());
     }
 
     #[test]

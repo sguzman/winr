@@ -68,13 +68,21 @@ pub struct AdvancedBackendSession {
 
 #[instrument(skip(profile))]
 pub fn prepare_profile_backend(profile: &ProfileConfig) -> WinrResult<AdvancedBackendSession> {
+    prepare_profile_backend_for_frontend(profile, AdvancedFrontend::Cli)
+}
+
+#[instrument(skip(profile))]
+pub fn prepare_profile_backend_for_frontend(
+    profile: &ProfileConfig,
+    frontend: AdvancedFrontend,
+) -> WinrResult<AdvancedBackendSession> {
     debug!(
         profile_id = %profile.profile.id,
         backend = profile.execution.backend.as_str(),
         "preparing advanced backend session"
     );
 
-    let selection = resolve_backend_selection(profile, AdvancedFrontend::Cli);
+    let selection = resolve_backend_selection(profile, frontend);
     if selection.resolved != AdvancedProfileBackend::Inject {
         return Err(advanced_error(
             AdvancedBackendErrorKind::AttachNotImplemented,
@@ -124,7 +132,7 @@ pub fn resolve_backend_selection(
         AdvancedProfileBackend::Auto => AdvancedBackendSelection {
             frontend,
             requested: AdvancedProfileBackend::Auto,
-            resolved: inferred_backend(profile),
+            resolved: inferred_backend(profile, frontend),
             reason: inferred_reason(profile),
             opt_in_mode: AdvancedBackendOptInMode::AutoDetectFromProfile,
             advanced_backend_requested: false,
@@ -201,9 +209,9 @@ pub fn select_backend_by_capabilities(
     }
 }
 
-fn inferred_backend(profile: &ProfileConfig) -> AdvancedProfileBackend {
+fn inferred_backend(profile: &ProfileConfig, frontend: AdvancedFrontend) -> AdvancedProfileBackend {
     let requirements = capability_requirements_for_profile(profile);
-    let catalog = catalog_for_frontend(AdvancedFrontend::Cli);
+    let catalog = catalog_for_frontend(frontend);
     select_backend_by_capabilities(&catalog, &requirements)
         .selected_backend
         .unwrap_or(AdvancedProfileBackend::Foreground)
@@ -304,6 +312,10 @@ impl AdvancedBackendSession {
 
     pub fn ping_command(&mut self) -> AdvancedHostCommandEnvelope {
         self.next_command(AdvancedHostCommand::Ping)
+    }
+
+    pub fn command(&mut self, command: AdvancedHostCommand) -> AdvancedHostCommandEnvelope {
+        self.next_command(command)
     }
 
     pub fn apply_response(&mut self, envelope: &AdvancedHostResponseEnvelope) -> WinrResult<()> {

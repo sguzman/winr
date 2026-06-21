@@ -13,17 +13,18 @@ use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{EnvFilter, fmt};
 use winr_core::{
     ListWindowsOptions, MouseButton, ProfileRunEvent, ProfileRunOptions, close_window,
-    focus_window, foreground_window, input_keys, input_sequence, input_text, list_windows,
-    load_profile, maximize_window, minimize_window, mouse_click, mouse_click_window_with_mode,
-    move_window, resize_window, restore_window, run_profile, screenshot_desktop, screenshot_window,
-    uia_find, uia_invoke, uia_set_text, uia_tree, window_info,
+    describe_profile_workflow, focus_window, foreground_window, input_keys, input_sequence,
+    input_text, list_windows, load_profile, maximize_window, minimize_window, mouse_click,
+    mouse_click_window_with_mode, move_window, resize_window, restore_window, run_profile,
+    screenshot_desktop, screenshot_window, uia_find, uia_invoke, uia_set_text, uia_tree,
+    window_info,
 };
 use winr_types::{
-    ErrorResponse, InputActionResult, InputMode, MouseInputMode, ProfileRunResult,
-    ScreenshotBackend, ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult,
-    UiaElementInfo, UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode,
-    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
-    format_hwnd, parse_hwnd,
+    AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, MouseInputMode,
+    ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend, ScreenshotResult,
+    SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo, UiaFindRequest,
+    UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest, UiaTreeResponse,
+    WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd, parse_hwnd,
 };
 
 fn main() {
@@ -151,6 +152,7 @@ enum McpCommand {
 #[derive(Debug, Subcommand)]
 enum ProfileCommand {
     Run(ProfileRunArgs),
+    Inspect(ProfileInspectArgs),
 }
 
 #[derive(Debug, Args)]
@@ -259,6 +261,28 @@ struct ProfileRunArgs {
         help = "Wait this many milliseconds after target acquisition before starting clicks"
     )]
     arm_delay_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum FrontendArg {
+    Cli,
+    Mcp,
+}
+
+impl From<FrontendArg> for AdvancedFrontend {
+    fn from(value: FrontendArg) -> Self {
+        match value {
+            FrontendArg::Cli => AdvancedFrontend::Cli,
+            FrontendArg::Mcp => AdvancedFrontend::Mcp,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct ProfileInspectArgs {
+    path: PathBuf,
+    #[arg(long, value_enum, default_value = "cli")]
+    frontend: FrontendArg,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -618,6 +642,11 @@ fn run(cli: Cli) -> Result<(), WinrError> {
                 let result = run_profile_with_console(&profile, options, cli.json)?;
                 emit(cli.json, &result)
             }
+            ProfileCommand::Inspect(args) => {
+                let profile = load_profile(&args.path)?;
+                let summary = describe_profile_workflow(&profile, args.frontend.into());
+                emit(cli.json, &summary)
+            }
         },
         RootCommand::Window { command } => match command {
             WindowCommand::Info(args) => {
@@ -905,6 +934,72 @@ impl HumanOutput for ProfileRunResult {
         writeln!(writer, "clicks_fired: {}", self.clicks_fired).map_err(io_error)?;
         writeln!(writer, "backend_used: {}", self.backend_used.as_str()).map_err(io_error)?;
         self.target_window.write_human(writer)
+    }
+}
+
+impl HumanOutput for ProfileWorkflowIntegration {
+    fn write_human<W: Write>(&self, writer: &mut W) -> Result<(), WinrError> {
+        writeln!(writer, "workflow_id: {}", self.workflow_id).map_err(io_error)?;
+        writeln!(writer, "workflow_name: {}", self.workflow_name).map_err(io_error)?;
+        writeln!(writer, "workflow_surface: {}", self.workflow_surface).map_err(io_error)?;
+        writeln!(
+            writer,
+            "frontend: {}",
+            match self.frontend {
+                AdvancedFrontend::Cli => "cli",
+                AdvancedFrontend::Mcp => "mcp",
+            }
+        )
+        .map_err(io_error)?;
+        writeln!(
+            writer,
+            "requested_backend: {}",
+            self.backend_selection.requested.as_str()
+        )
+        .map_err(io_error)?;
+        writeln!(
+            writer,
+            "resolved_backend: {}",
+            self.backend_selection.resolved.as_str()
+        )
+        .map_err(io_error)?;
+        writeln!(
+            writer,
+            "advanced_backend_requested: {}",
+            self.backend_selection.advanced_backend_requested
+        )
+        .map_err(io_error)?;
+        writeln!(
+            writer,
+            "capability_selected_backend: {}",
+            self.capability_selection
+                .selected_backend
+                .map(|backend| backend.as_str())
+                .unwrap_or("<none>")
+        )
+        .map_err(io_error)?;
+        writeln!(
+            writer,
+            "target: title={:?} exe={:?} class={:?} pid={:?} hwnd={:?}",
+            self.target.title_hint,
+            self.target.exe,
+            self.target.window_class,
+            self.target.pid,
+            self.target.hwnd
+        )
+        .map_err(io_error)?;
+        for backend in &self.available_backends {
+            writeln!(
+                writer,
+                "backend_option: {} stability={:?} replaceable={} app_pack_specific={}",
+                backend.backend.as_str(),
+                backend.stability,
+                backend.replaceable,
+                backend.app_pack_specific
+            )
+            .map_err(io_error)?;
+        }
+        Ok(())
     }
 }
 

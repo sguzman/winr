@@ -204,11 +204,13 @@ See `docs/advanced-backend-phase11-decisions.md` for the concrete decisions reco
 
 ## Phase 12: User-Facing Integration
 
-- [ ] Keep one CLI surface
-- [ ] Keep one MCP surface
-- [ ] Keep one workflow concept across backends
-- [ ] Hide backend-specific execution behind capability selection
+- [x] Keep one CLI surface
+- [x] Keep one MCP surface
+- [x] Keep one workflow concept across backends
+- [x] Hide backend-specific execution behind capability selection
 - [x] Let profiles eventually declare backend preferences such as `foreground`, `message`, `inject`, or `auto`
+
+See `docs/advanced-backend-phase12-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Suggested Implementation Order
 
