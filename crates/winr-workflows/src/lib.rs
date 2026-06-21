@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use winr_perception::{DetectorDescriptor, EntityKind, ObservationFrame};
+use winr_perception::{DetectorDescriptor, EntityKind, ObservationFrame, WorldModel};
 use winr_types::{AdvancedBackendCapabilities, AdvancedProfileBackend};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -162,6 +162,13 @@ pub trait WorkflowPlanner {
     fn plan(&self, frame: &ObservationFrame, task: WorkflowTaskKind) -> Option<WorkflowPlan>;
 }
 
+pub fn select_prioritized_entity_id(
+    world_model: &WorldModel,
+    kind: EntityKind,
+) -> Option<String> {
+    world_model.best_entity(kind).map(|entity| entity.entity.id.clone())
+}
+
 impl WorkflowIntentDefinition {
     pub fn into_input_mapping(
         &self,
@@ -296,6 +303,7 @@ mod tests {
     use super::*;
     use winr_perception::{
         ObservationMetadata, ObservationSourceData, ObservationSourceKind, ObservationStateVersion,
+        TrackedEntityStatus, TrackedObservationEntity, WorldModel,
     };
 
     struct RobloxPack;
@@ -524,5 +532,58 @@ mod tests {
             })
             .expect("foreground fallback should resolve");
         assert_eq!(foreground.sink, InputSinkKind::Win32Foreground);
+    }
+
+    #[test]
+    fn workflow_can_pick_best_entity_from_world_model() {
+        let world_model = WorldModel {
+            target: winr_types::AdvancedTargetRef {
+                hwnd: Some("0x0000000000001234".to_string()),
+                pid: Some(42),
+                exe: Some("RobloxPlayerBeta.exe".to_string()),
+                window_class: Some("WINDOWSCLIENT".to_string()),
+                title_hint: Some("Roblox".to_string()),
+            },
+            last_updated_frame_id: 9,
+            detector_kinds: vec![winr_perception::DetectorKind::MemoryEntity],
+            entities: vec![
+                TrackedObservationEntity {
+                    entity: winr_perception::ObservationEntity {
+                        id: "rock-1".to_string(),
+                        kind: EntityKind::Interactable,
+                        label: "Rock".to_string(),
+                        confidence: 0.8,
+                        tags: vec!["resource".to_string()],
+                    },
+                    smoothed_confidence: 0.82,
+                    priority_score: 192,
+                    first_seen_frame_id: 1,
+                    last_seen_frame_id: 9,
+                    missed_frames: 0,
+                    status: TrackedEntityStatus::Active,
+                },
+                TrackedObservationEntity {
+                    entity: winr_perception::ObservationEntity {
+                        id: "rock-2".to_string(),
+                        kind: EntityKind::Interactable,
+                        label: "Rock".to_string(),
+                        confidence: 0.6,
+                        tags: Vec::new(),
+                    },
+                    smoothed_confidence: 0.61,
+                    priority_score: 161,
+                    first_seen_frame_id: 2,
+                    last_seen_frame_id: 9,
+                    missed_frames: 0,
+                    status: TrackedEntityStatus::Active,
+                },
+            ],
+            notes: Vec::new(),
+        };
+
+        let best = select_prioritized_entity_id(&world_model, EntityKind::Interactable)
+            .expect("best entity should exist");
+
+        assert_eq!(best, "rock-1");
     }
 }

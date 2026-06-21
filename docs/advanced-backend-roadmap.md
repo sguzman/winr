@@ -137,14 +137,16 @@ See `docs/advanced-backend-phase6-decisions.md` for the concrete decisions recor
 
 ## Phase 7: Perception And Entity Model
 
-- [ ] Create a shared world model that represents what the automation system believes about the target
-- [ ] Support core entities such as player, camera, region, prompt, interactable object, collectible object, obstacle, waypoint, and detected visual marker
-- [ ] Support detector families including template matching, color cluster matching, OCR, object detection, memory-backed entity extraction, and render-backed overlay or object extraction
-- [ ] Add stable tracking across frames
-- [ ] Add confidence smoothing
-- [ ] Add lost target handling
-- [ ] Add reacquisition logic
-- [ ] Add object prioritization
+- [x] Create a shared world model that represents what the automation system believes about the target
+- [x] Support core entities such as player, camera, region, prompt, interactable object, collectible object, obstacle, waypoint, and detected visual marker
+- [x] Support detector families including template matching, color cluster matching, OCR, object detection, memory-backed entity extraction, and render-backed overlay or object extraction
+- [x] Add stable tracking across frames
+- [x] Add confidence smoothing
+- [x] Add lost target handling
+- [x] Add reacquisition logic
+- [x] Add object prioritization
+
+See `docs/advanced-backend-phase7-decisions.md` for the concrete decisions recorded for this phase.
 
 ## Phase 8: Navigation And Control
 

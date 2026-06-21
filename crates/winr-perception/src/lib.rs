@@ -128,6 +128,66 @@ pub struct ObservationEntity {
     pub tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackedEntityStatus {
+    Active,
+    Lost,
+    Reacquired,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TrackedObservationEntity {
+    pub entity: ObservationEntity,
+    pub smoothed_confidence: f32,
+    pub priority_score: u32,
+    pub first_seen_frame_id: u64,
+    pub last_seen_frame_id: u64,
+    pub missed_frames: u32,
+    pub status: TrackedEntityStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct WorldModel {
+    pub target: AdvancedTargetRef,
+    pub last_updated_frame_id: u64,
+    #[serde(default)]
+    pub detector_kinds: Vec<DetectorKind>,
+    #[serde(default)]
+    pub entities: Vec<TrackedObservationEntity>,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct WorldModelDelta {
+    #[serde(default)]
+    pub new_entities: Vec<String>,
+    #[serde(default)]
+    pub lost_entities: Vec<String>,
+    #[serde(default)]
+    pub reacquired_entities: Vec<String>,
+    #[serde(default)]
+    pub reprioritized_entities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct WorldModelTrackerConfig {
+    pub confidence_alpha: f32,
+    pub lost_after_missed_frames: u32,
+    pub drop_after_missed_frames: u32,
+}
+
+impl Default for WorldModelTrackerConfig {
+    fn default() -> Self {
+        Self {
+            confidence_alpha: 0.65,
+            lost_after_missed_frames: 2,
+            drop_after_missed_frames: 4,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ObservationConfidenceSummary {
     pub overall: f32,
@@ -399,6 +459,12 @@ pub trait MemoryStateProjector {
     fn project_entities(&self, frame: &ObservationFrame) -> Vec<ObservationEntity>;
 }
 
+#[derive(Debug, Default)]
+pub struct WorldModelTracker {
+    pub config: WorldModelTrackerConfig,
+    pub model: Option<WorldModel>,
+}
+
 #[derive(Default)]
 pub struct ObservationStack {
     sources: Vec<Box<dyn ObservationFrameSource>>,
@@ -490,6 +556,121 @@ impl ObservationFrame {
     }
 }
 
+impl WorldModel {
+    pub fn active_entities(&self) -> Vec<&TrackedObservationEntity> {
+        self.entities
+            .iter()
+            .filter(|entity| entity.status != TrackedEntityStatus::Lost)
+            .collect()
+    }
+
+    pub fn lost_entities(&self) -> Vec<&TrackedObservationEntity> {
+        self.entities
+            .iter()
+            .filter(|entity| entity.status == TrackedEntityStatus::Lost)
+            .collect()
+    }
+
+    pub fn prioritized_entities(&self) -> Vec<&TrackedObservationEntity> {
+        let mut entities = self.active_entities();
+        entities.sort_by(|left, right| {
+            right
+                .priority_score
+                .cmp(&left.priority_score)
+                .then_with(|| right.last_seen_frame_id.cmp(&left.last_seen_frame_id))
+        });
+        entities
+    }
+
+    pub fn best_entity(&self, kind: EntityKind) -> Option<&TrackedObservationEntity> {
+        self.prioritized_entities()
+            .into_iter()
+            .find(|entity| entity.entity.kind == kind)
+    }
+}
+
+impl WorldModelTracker {
+    pub fn update(&mut self, frame: &ObservationFrame) -> WorldModelDelta {
+        let mut delta = WorldModelDelta::default();
+        let model = self.model.get_or_insert_with(|| WorldModel {
+            target: frame.target.clone(),
+            last_updated_frame_id: frame.metadata.frame_id,
+            detector_kinds: frame.detectors.iter().map(|detector| detector.kind).collect(),
+            entities: Vec::new(),
+            notes: vec!["world model initialized from observation frame".to_string()],
+        });
+
+        model.target = frame.target.clone();
+        model.last_updated_frame_id = frame.metadata.frame_id;
+        model.detector_kinds = unique_detector_kinds(frame);
+
+        let mut seen_ids = Vec::new();
+        for entity in &frame.entities {
+            seen_ids.push(entity.id.clone());
+            match model
+                .entities
+                .iter_mut()
+                .find(|tracked| tracked.entity.id == entity.id)
+            {
+                Some(tracked) => {
+                    let previous_status = tracked.status;
+                    let previous_priority = tracked.priority_score;
+                    tracked.entity = entity.clone();
+                    tracked.smoothed_confidence = smooth_confidence(
+                        tracked.smoothed_confidence,
+                        entity.confidence,
+                        self.config.confidence_alpha,
+                    );
+                    tracked.priority_score =
+                        compute_priority_score(&tracked.entity, tracked.smoothed_confidence);
+                    tracked.last_seen_frame_id = frame.metadata.frame_id;
+                    tracked.missed_frames = 0;
+                    tracked.status = if previous_status == TrackedEntityStatus::Lost {
+                        delta.reacquired_entities.push(entity.id.clone());
+                        TrackedEntityStatus::Reacquired
+                    } else {
+                        TrackedEntityStatus::Active
+                    };
+                    if previous_priority != tracked.priority_score {
+                        delta.reprioritized_entities.push(entity.id.clone());
+                    }
+                }
+                None => {
+                    model.entities.push(TrackedObservationEntity {
+                        entity: entity.clone(),
+                        smoothed_confidence: entity.confidence,
+                        priority_score: compute_priority_score(entity, entity.confidence),
+                        first_seen_frame_id: frame.metadata.frame_id,
+                        last_seen_frame_id: frame.metadata.frame_id,
+                        missed_frames: 0,
+                        status: TrackedEntityStatus::Active,
+                    });
+                    delta.new_entities.push(entity.id.clone());
+                }
+            }
+        }
+
+        for tracked in &mut model.entities {
+            if seen_ids.iter().any(|id| id == &tracked.entity.id) {
+                continue;
+            }
+            tracked.missed_frames += 1;
+            if tracked.missed_frames >= self.config.lost_after_missed_frames
+                && tracked.status != TrackedEntityStatus::Lost
+            {
+                tracked.status = TrackedEntityStatus::Lost;
+                delta.lost_entities.push(tracked.entity.id.clone());
+            }
+        }
+
+        model.entities.retain(|tracked| {
+            tracked.missed_frames < self.config.drop_after_missed_frames
+        });
+
+        delta
+    }
+}
+
 impl ObservationSourceData {
     pub fn kind(&self) -> ObservationSourceKind {
         match self {
@@ -522,6 +703,46 @@ impl StaticObservationSource {
             capabilities,
         }
     }
+}
+
+fn unique_detector_kinds(frame: &ObservationFrame) -> Vec<DetectorKind> {
+    let mut kinds = Vec::new();
+    for detector in &frame.detectors {
+        if !kinds.contains(&detector.kind) {
+            kinds.push(detector.kind);
+        }
+    }
+    kinds
+}
+
+fn smooth_confidence(previous: f32, current: f32, alpha: f32) -> f32 {
+    (current * alpha) + (previous * (1.0 - alpha))
+}
+
+fn compute_priority_score(entity: &ObservationEntity, smoothed_confidence: f32) -> u32 {
+    let base = match entity.kind {
+        EntityKind::Prompt => 110,
+        EntityKind::Interactable => 100,
+        EntityKind::Collectible => 90,
+        EntityKind::Player => 80,
+        EntityKind::Region => 70,
+        EntityKind::Waypoint => 60,
+        EntityKind::VisualMarker => 55,
+        EntityKind::Obstacle => 50,
+        EntityKind::Camera => 40,
+    };
+    let tag_bonus = entity
+        .tags
+        .iter()
+        .map(|tag| match tag.as_str() {
+            "priority" => 20,
+            "resource" => 10,
+            "patrol" => 8,
+            _ => 0,
+        })
+        .sum::<u32>();
+
+    base + tag_bonus + (smoothed_confidence.clamp(0.0, 1.0) * 100.0) as u32
 }
 
 impl ObservationFrameSource for StaticObservationSource {
@@ -993,5 +1214,173 @@ mod tests {
         assert!(details.raw_layout_hidden);
         assert_eq!(details.prompts.len(), 1);
         assert_eq!(details.nearby_objects[0].kind, "resource_node");
+    }
+
+    #[test]
+    fn world_model_tracks_smooths_and_prioritizes_entities() {
+        let mut tracker = WorldModelTracker::default();
+        let first = ObservationFrame {
+            target: sample_target(),
+            metadata: ObservationMetadata {
+                version: ObservationStateVersion::V1,
+                backend: AdvancedProfileBackend::Inject,
+                source: ObservationSourceKind::MemoryState,
+                frame_id: 1,
+                timestamp_ms: 10,
+                freshness_ms: 5,
+            },
+            source_data: ObservationSourceData::MemoryState {
+                snapshot_id: "snap-1".to_string(),
+                state_fields: Vec::new(),
+            },
+            render_details: None,
+            memory_details: None,
+            camera_hints: None,
+            player_state_hints: None,
+            confidence: None,
+            detectors: vec![
+                DetectorDescriptor {
+                    id: "mem-entities".to_string(),
+                    name: "Memory Entities".to_string(),
+                    kind: DetectorKind::MemoryEntity,
+                },
+                DetectorDescriptor {
+                    id: "ocr-prompt".to_string(),
+                    name: "OCR Prompt".to_string(),
+                    kind: DetectorKind::Ocr,
+                },
+            ],
+            detector_overlays: Vec::new(),
+            entities: vec![
+                ObservationEntity {
+                    id: "rock-1".to_string(),
+                    kind: EntityKind::Interactable,
+                    label: "Rock".to_string(),
+                    confidence: 0.9,
+                    tags: vec!["resource".to_string()],
+                },
+                ObservationEntity {
+                    id: "prompt-1".to_string(),
+                    kind: EntityKind::Prompt,
+                    label: "Press E".to_string(),
+                    confidence: 0.7,
+                    tags: vec!["priority".to_string()],
+                },
+            ],
+            notes: Vec::new(),
+        };
+
+        let delta = tracker.update(&first);
+        assert_eq!(delta.new_entities.len(), 2);
+        let model = tracker.model.as_ref().expect("model should exist");
+        assert_eq!(model.detector_kinds.len(), 2);
+        assert_eq!(
+            model
+                .best_entity(EntityKind::Prompt)
+                .expect("prompt should exist")
+                .entity
+                .id,
+            "prompt-1"
+        );
+
+        let second = ObservationFrame {
+            metadata: ObservationMetadata {
+                frame_id: 2,
+                ..first.metadata.clone()
+            },
+            entities: vec![ObservationEntity {
+                id: "rock-1".to_string(),
+                kind: EntityKind::Interactable,
+                label: "Rock".to_string(),
+                confidence: 0.4,
+                tags: vec!["resource".to_string()],
+            }],
+            ..first.clone()
+        };
+        let delta = tracker.update(&second);
+        assert_eq!(delta.lost_entities.len(), 0);
+        let rock = tracker
+            .model
+            .as_ref()
+            .expect("model should exist")
+            .best_entity(EntityKind::Interactable)
+            .expect("rock should exist");
+        assert!(rock.smoothed_confidence > 0.4);
+        assert_eq!(rock.status, TrackedEntityStatus::Active);
+    }
+
+    #[test]
+    fn world_model_marks_lost_and_reacquired_entities() {
+        let mut tracker = WorldModelTracker::default();
+        let base = ObservationFrame {
+            target: sample_target(),
+            metadata: ObservationMetadata {
+                version: ObservationStateVersion::V1,
+                backend: AdvancedProfileBackend::Inject,
+                source: ObservationSourceKind::RenderHookFrame,
+                frame_id: 1,
+                timestamp_ms: 10,
+                freshness_ms: 5,
+            },
+            source_data: ObservationSourceData::RenderHookFrame {
+                frame: ObservationFrameHandle {
+                    payload: sample_payload("frame"),
+                    width: 10,
+                    height: 10,
+                    pixel_format: ObservationPixelFormat::Bgra8,
+                    row_stride_bytes: None,
+                },
+            },
+            render_details: None,
+            memory_details: None,
+            camera_hints: None,
+            player_state_hints: None,
+            confidence: None,
+            detectors: Vec::new(),
+            detector_overlays: Vec::new(),
+            entities: vec![ObservationEntity {
+                id: "marker-1".to_string(),
+                kind: EntityKind::VisualMarker,
+                label: "Marker".to_string(),
+                confidence: 0.8,
+                tags: Vec::new(),
+            }],
+            notes: Vec::new(),
+        };
+
+        tracker.update(&base);
+        tracker.update(&ObservationFrame {
+            metadata: ObservationMetadata {
+                frame_id: 2,
+                ..base.metadata.clone()
+            },
+            entities: Vec::new(),
+            ..base.clone()
+        });
+        let lost = tracker.update(&ObservationFrame {
+            metadata: ObservationMetadata {
+                frame_id: 3,
+                ..base.metadata.clone()
+            },
+            entities: Vec::new(),
+            ..base.clone()
+        });
+        assert_eq!(lost.lost_entities, vec!["marker-1".to_string()]);
+
+        let reacquired = tracker.update(&ObservationFrame {
+            metadata: ObservationMetadata {
+                frame_id: 4,
+                ..base.metadata.clone()
+            },
+            ..base.clone()
+        });
+        assert_eq!(reacquired.reacquired_entities, vec!["marker-1".to_string()]);
+        let tracked = tracker
+            .model
+            .as_ref()
+            .expect("model should exist")
+            .best_entity(EntityKind::VisualMarker)
+            .expect("marker should exist");
+        assert_eq!(tracked.status, TrackedEntityStatus::Reacquired);
     }
 }
