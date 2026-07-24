@@ -23,9 +23,9 @@ use winr_types::{
     AdvancedFrontend, ErrorResponse, InputActionResult, InputMode, LiveSessionInspection,
     MouseInputMode, ProfileRunResult, ProfileWorkflowIntegration, ScreenshotBackend,
     ScreenshotResult, SuccessResponse, UiaActionRequest, UiaActionResult, UiaElementInfo,
-    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode,
-    UiaTreeRequest, UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError,
-    format_hwnd, parse_hwnd,
+    UiaFindRequest, UiaFindResponse, UiaSelector, UiaSetTextRequest, UiaTreeMode, UiaTreeRequest,
+    UiaTreeResponse, WindowActionResult, WindowInfo, WindowSelector, WinrError, format_hwnd,
+    parse_hwnd,
 };
 
 fn main() {
@@ -1060,12 +1060,7 @@ impl HumanOutput for LiveSessionInspection {
             if let Some(radius) = observation.patrol_region_radius_millimeters {
                 writeln!(writer, "patrol_radius_mm: {}", radius).map_err(io_error)?;
             }
-            writeln!(
-                writer,
-                "entities: {}",
-                observation.entities.join(", ")
-            )
-            .map_err(io_error)?;
+            writeln!(writer, "entities: {}", observation.entities.join(", ")).map_err(io_error)?;
         }
         if let Some(reason) = &self.reasoning {
             writeln!(writer, "reasoning: {}", reason.summary).map_err(io_error)?;

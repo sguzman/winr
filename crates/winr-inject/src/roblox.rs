@@ -20,13 +20,12 @@ use windows::{
             },
             LibraryLoader::{GetModuleHandleW, GetProcAddress},
             Memory::{
-                MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx,
-                VirtualFreeEx,
+                MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
             },
             Threading::{
-                CreateRemoteThread, GetExitCodeThread, OpenProcess, WaitForSingleObject,
-                PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION,
-                PROCESS_VM_READ, PROCESS_VM_WRITE,
+                CreateRemoteThread, GetExitCodeThread, OpenProcess, PROCESS_CREATE_THREAD,
+                PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
+                WaitForSingleObject,
             },
         },
         UI::{
@@ -47,13 +46,11 @@ use winr_perception::{
     ObservationSourceData, ObservationStateField, PlayerStateHints, WorldModelTracker,
 };
 use winr_types::{
-    AdvancedCommandAckStatus, AdvancedExecutionReason, AdvancedFrontend,
-    AdvancedHostCommand, AdvancedHostResponse, AdvancedProfileBackend, AdvancedTargetRef,
-    InjectedInputAction,
+    AdvancedCommandAckStatus, AdvancedExecutionReason, AdvancedFrontend, AdvancedHostCommand,
+    AdvancedHostResponse, AdvancedProfileBackend, AdvancedTargetRef, InjectedInputAction,
     LiveObservationSummary, LiveSessionInspection, ProfileConfig, ProfileRunResult,
     RobloxAdvancedConfig, RobloxMemoryField, RobloxMemorySchema, RobloxMemoryValueKind,
-    RobloxPatrolRegionConfig, RobloxObservationSnapshot, WinrError,
-    WinrResult, WindowInfo,
+    RobloxObservationSnapshot, RobloxPatrolRegionConfig, WindowInfo, WinrError, WinrResult,
 };
 use winr_workflows::{
     AppPackMovementTuning, BoundedRegionPatrolController, ControllerMemory, NavigationContext,
@@ -76,7 +73,10 @@ pub struct LiveRobloxRunOptions {
 
 pub fn load_roblox_memory_schema(path: &Path) -> WinrResult<RobloxMemorySchema> {
     let text = fs::read_to_string(path).map_err(|error| WinrError::Unsupported {
-        message: format!("failed to read Roblox memory schema {}: {error}", path.display()),
+        message: format!(
+            "failed to read Roblox memory schema {}: {error}",
+            path.display()
+        ),
     })?;
     toml::from_str(&text).map_err(|error| WinrError::Unsupported {
         message: format!(
@@ -111,9 +111,10 @@ where
 
     while executed_steps < max_steps {
         if should_stop() {
-            runtime
-                .session
-                .record_reasoning("workflow stopped by caller", vec!["stop signal received".to_string()]);
+            runtime.session.record_reasoning(
+                "workflow stopped by caller",
+                vec!["stop signal received".to_string()],
+            );
             break;
         }
 
@@ -149,14 +150,9 @@ struct WindowsProcessMemory {
 
 impl WindowsProcessMemory {
     fn open(pid: u32) -> Result<Self, String> {
-        let handle = unsafe {
-            OpenProcess(
-                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                false,
-                pid,
-            )
-        }
-        .map_err(|error| format!("OpenProcess failed for pid {pid}: {error}"))?;
+        let handle =
+            unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
+                .map_err(|error| format!("OpenProcess failed for pid {pid}: {error}"))?;
 
         Ok(Self { handle, pid })
     }
@@ -172,10 +168,9 @@ impl Drop for WindowsProcessMemory {
 
 impl ProcessMemory for WindowsProcessMemory {
     fn module_base(&self, module_name: &str) -> Result<usize, String> {
-        let snapshot = unsafe {
-            CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.pid)
-        }
-        .map_err(|error| format!("CreateToolhelp32Snapshot failed: {error}"))?;
+        let snapshot =
+            unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.pid) }
+                .map_err(|error| format!("CreateToolhelp32Snapshot failed: {error}"))?;
 
         let mut entry = MODULEENTRY32W {
             dwSize: std::mem::size_of::<MODULEENTRY32W>() as u32,
@@ -298,9 +293,8 @@ where
             });
         }
 
-        let region_distance = player_position.map(|position| {
-            euclidean_distance_millimeters(position, patrol.anchor_millimeters)
-        });
+        let region_distance = player_position
+            .map(|position| euclidean_distance_millimeters(position, patrol.anchor_millimeters));
         entities.push(ObservationEntity {
             id: "live-patrol-region".to_string(),
             kind: EntityKind::Region,
@@ -535,7 +529,9 @@ where
     fn resolve_field_address(&self, field: &RobloxMemoryField) -> Result<usize, String> {
         let mut cursor = self.memory.module_base(&field.module)? + field.base_offset;
         for offset in &field.dereference_offsets {
-            let bytes = self.memory.read_bytes(cursor, std::mem::size_of::<usize>())?;
+            let bytes = self
+                .memory
+                .read_bytes(cursor, std::mem::size_of::<usize>())?;
             let next = usize::from_le_bytes(
                 bytes
                     .try_into()
@@ -568,9 +564,12 @@ impl RobloxLiveRuntime {
             .ok_or_else(|| WinrError::Unsupported {
                 message: "live Roblox workflow requires [advanced.roblox] config".to_string(),
             })?;
-        let workflow = profile.workflow.as_ref().ok_or_else(|| WinrError::Unsupported {
-            message: "live Roblox workflow requires [workflow] config".to_string(),
-        })?;
+        let workflow = profile
+            .workflow
+            .as_ref()
+            .ok_or_else(|| WinrError::Unsupported {
+                message: "live Roblox workflow requires [workflow] config".to_string(),
+            })?;
         if !workflow.task.eq_ignore_ascii_case("patrol_region") {
             return Err(WinrError::Unsupported {
                 message: format!(
@@ -617,16 +616,19 @@ impl RobloxLiveRuntime {
         let frame = self.capture_frame()?;
         self.trace.push(
             WorkflowTraceEventKind::ObservationAccepted,
-            format!("accepted live observation frame {}", frame.metadata.frame_id),
+            format!(
+                "accepted live observation frame {}",
+                frame.metadata.frame_id
+            ),
         );
-        let world_model = self
-            .tracker
-            .model
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| WinrError::Unsupported {
-                message: "world model was not initialized from live observation".to_string(),
-            })?;
+        let world_model =
+            self.tracker
+                .model
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| WinrError::Unsupported {
+                    message: "world model was not initialized from live observation".to_string(),
+                })?;
 
         let waypoints = rotated_waypoint_ids(self.step_index);
         let patrol = BoundedRegionPatrolController {
@@ -634,24 +636,26 @@ impl RobloxLiveRuntime {
             waypoint_entity_ids: waypoints,
         };
         let config = self.navigation_config()?;
-        self.controller_memory.progress_samples.push(ProgressSample {
-            frame_id: frame.metadata.frame_id,
-            player_position_millimeters: frame
-                .memory_details
-                .as_ref()
-                .and_then(|details| details.player_state.as_ref())
-                .and_then(|state| state.world_position_millimeters),
-            target_distance_millimeters: world_model
-                .best_entity(EntityKind::Region)
-                .and_then(|entity| {
-                    entity
-                        .entity
-                        .tags
-                        .iter()
-                        .find_map(|tag| tag.strip_prefix("distance_mm:"))
-                        .and_then(|value| value.parse::<u32>().ok())
-                }),
-        });
+        self.controller_memory
+            .progress_samples
+            .push(ProgressSample {
+                frame_id: frame.metadata.frame_id,
+                player_position_millimeters: frame
+                    .memory_details
+                    .as_ref()
+                    .and_then(|details| details.player_state.as_ref())
+                    .and_then(|state| state.world_position_millimeters),
+                target_distance_millimeters: world_model.best_entity(EntityKind::Region).and_then(
+                    |entity| {
+                        entity
+                            .entity
+                            .tags
+                            .iter()
+                            .find_map(|tag| tag.strip_prefix("distance_mm:"))
+                            .and_then(|value| value.parse::<u32>().ok())
+                    },
+                ),
+            });
         if self.controller_memory.progress_samples.len() > 8 {
             self.controller_memory.progress_samples.remove(0);
         }
@@ -695,12 +699,16 @@ impl RobloxLiveRuntime {
     }
 
     fn capture_frame(&mut self) -> WinrResult<ObservationFrame> {
-        self.transport.send_command(self.session.command(
-            AdvancedHostCommand::FetchObservations { max_items: 1 },
-        ))?;
-        let response = self.transport.recv_response()?.ok_or_else(|| WinrError::Unsupported {
-            message: "injected agent did not return an observation response".to_string(),
-        })?;
+        self.transport.send_command(
+            self.session
+                .command(AdvancedHostCommand::FetchObservations { max_items: 1 }),
+        )?;
+        let response = self
+            .transport
+            .recv_response()?
+            .ok_or_else(|| WinrError::Unsupported {
+                message: "injected agent did not return an observation response".to_string(),
+            })?;
         self.session.apply_response(&response)?;
         while let Some(event) = self.transport.recv_event()? {
             self.session.apply_event(&event)?;
@@ -710,7 +718,8 @@ impl RobloxLiveRuntime {
                 .into_iter()
                 .next()
                 .ok_or_else(|| WinrError::Unsupported {
-                    message: "injected agent returned an empty Roblox observation batch".to_string(),
+                    message: "injected agent returned an empty Roblox observation batch"
+                        .to_string(),
                 })?,
             other => {
                 return Err(WinrError::Unsupported {
@@ -783,12 +792,16 @@ impl RobloxLiveRuntime {
 
     fn execute_action(&mut self, action: &SemanticInputAction) -> WinrResult<String> {
         if let Some(mapped) = map_injected_input_action(action) {
-            self.transport.send_command(self.session.command(
-                AdvancedHostCommand::ExecuteInput { action: mapped },
-            ))?;
-            let response = self.transport.recv_response()?.ok_or_else(|| WinrError::Unsupported {
-                message: "injected agent did not return an input outcome".to_string(),
-            })?;
+            self.transport.send_command(
+                self.session
+                    .command(AdvancedHostCommand::ExecuteInput { action: mapped }),
+            )?;
+            let response =
+                self.transport
+                    .recv_response()?
+                    .ok_or_else(|| WinrError::Unsupported {
+                        message: "injected agent did not return an input outcome".to_string(),
+                    })?;
             self.session.apply_response(&response)?;
             while let Some(event) = self.transport.recv_event()? {
                 self.session.apply_event(&event)?;
@@ -866,7 +879,11 @@ impl RobloxLiveRuntime {
                     self.advanced.patrol_region.radius_millimeters,
                 ),
                 prompt_visible,
-                entities: frame.entities.iter().map(|entity| entity.id.clone()).collect(),
+                entities: frame
+                    .entities
+                    .iter()
+                    .map(|entity| entity.id.clone())
+                    .collect(),
             }
         });
 
@@ -888,7 +905,11 @@ impl RobloxLiveRuntime {
                 .into_iter()
                 .rev()
                 .collect(),
-            reasoning: self.session.recent_reason.clone().or_else(|| trace_reasoning(&self.trace)),
+            reasoning: self
+                .session
+                .recent_reason
+                .clone()
+                .or_else(|| trace_reasoning(&self.trace)),
             last_rejected_command: self
                 .session
                 .command_records
@@ -977,7 +998,10 @@ fn frame_source_name(frame: &ObservationFrame) -> String {
     }
 }
 
-fn target_world_position(target: &SemanticInputTarget, context: &NavigationContext) -> Option<[i32; 3]> {
+fn target_world_position(
+    target: &SemanticInputTarget,
+    context: &NavigationContext,
+) -> Option<[i32; 3]> {
     match target {
         SemanticInputTarget::CurrentTarget => context
             .best_entity_by_kind(EntityKind::Interactable)
@@ -1051,10 +1075,9 @@ fn validate_live_schema(schema: &RobloxMemorySchema) -> WinrResult<()> {
 
     let looks_unedited = player_position.base_offset == 0
         && player_position.dereference_offsets.is_empty()
-        && schema
-            .objects
-            .iter()
-            .all(|object| object.position.base_offset == 0 && object.position.dereference_offsets.is_empty());
+        && schema.objects.iter().all(|object| {
+            object.position.base_offset == 0 && object.position.dereference_offsets.is_empty()
+        });
     if looks_unedited {
         return Err(WinrError::Unsupported {
             message:
@@ -1096,37 +1119,49 @@ fn bootstrap_injected_agent(
     )?;
 
     transport.send_command(session.handshake_command())?;
-    let response = transport.recv_response()?.ok_or_else(|| WinrError::Unsupported {
-        message: "injected agent did not respond to handshake".to_string(),
-    })?;
+    let response = transport
+        .recv_response()?
+        .ok_or_else(|| WinrError::Unsupported {
+            message: "injected agent did not respond to handshake".to_string(),
+        })?;
     session.apply_response(&response)?;
     while let Some(event) = transport.recv_event()? {
         session.apply_event(&event)?;
     }
 
     transport.send_command(session.command(AdvancedHostCommand::GetCapabilities))?;
-    let response = transport.recv_response()?.ok_or_else(|| WinrError::Unsupported {
-        message: "injected agent did not return capabilities".to_string(),
-    })?;
+    let response = transport
+        .recv_response()?
+        .ok_or_else(|| WinrError::Unsupported {
+            message: "injected agent did not return capabilities".to_string(),
+        })?;
     session.apply_response(&response)?;
 
     transport.send_command(session.command(AdvancedHostCommand::SubscribeEvents))?;
-    let response = transport.recv_response()?.ok_or_else(|| WinrError::Unsupported {
-        message: "injected agent did not confirm event subscription".to_string(),
-    })?;
+    let response = transport
+        .recv_response()?
+        .ok_or_else(|| WinrError::Unsupported {
+            message: "injected agent did not confirm event subscription".to_string(),
+        })?;
     session.apply_response(&response)?;
 
     let _ = fs::remove_file(bootstrap_path);
     Ok(transport)
 }
 
-fn write_agent_bootstrap_file(pid: u32, bootstrap: &RobloxAgentBootstrapConfig) -> WinrResult<PathBuf> {
+fn write_agent_bootstrap_file(
+    pid: u32,
+    bootstrap: &RobloxAgentBootstrapConfig,
+) -> WinrResult<PathBuf> {
     let path = std::env::temp_dir().join(format!("winr-roblox-agent-{pid}.json"));
     let raw = serde_json::to_string_pretty(bootstrap).map_err(|error| WinrError::Unsupported {
         message: format!("failed to serialize injected Roblox bootstrap config: {error}"),
     })?;
     fs::write(&path, raw).map_err(|error| WinrError::Unsupported {
-        message: format!("failed to write injected Roblox bootstrap {}: {error}", path.display()),
+        message: format!(
+            "failed to write injected Roblox bootstrap {}: {error}",
+            path.display()
+        ),
     })?;
     Ok(path)
 }
@@ -1137,18 +1172,21 @@ fn resolve_agent_dll_path() -> WinrResult<PathBuf> {
     })?;
     let mut candidates = vec![
         current_exe.with_file_name("winr_roblox_agent.dll"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/debug/winr_roblox_agent.dll"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/winr_roblox_agent.dll"),
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/release/winr_roblox_agent.dll"),
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../winr-roblox-agent/target/debug/winr_roblox_agent.dll"),
     ];
     candidates.retain(|path| path.exists());
-    candidates.into_iter().next().ok_or_else(|| WinrError::Unsupported {
-        message:
-            "failed to locate winr_roblox_agent.dll; build the injected agent target first".to_string(),
-    })
+    candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| WinrError::Unsupported {
+            message:
+                "failed to locate winr_roblox_agent.dll; build the injected agent target first"
+                    .to_string(),
+        })
 }
 
 fn inject_agent_dll(pid: u32, dll_path: &Path) -> WinrResult<()> {
@@ -1181,7 +1219,8 @@ fn inject_agent_dll(pid: u32, dll_path: &Path) -> WinrResult<()> {
         };
         if remote_buffer.is_null() {
             return Err(WinrError::Unsupported {
-                message: "VirtualAllocEx failed while allocating remote dll path buffer".to_string(),
+                message: "VirtualAllocEx failed while allocating remote dll path buffer"
+                    .to_string(),
             });
         }
 
@@ -1202,10 +1241,11 @@ fn inject_agent_dll(pid: u32, dll_path: &Path) -> WinrResult<()> {
             .map_err(|error| WinrError::Unsupported {
                 message: format!("GetModuleHandleW(kernel32.dll) failed: {error}"),
             })?;
-        let load_library = unsafe { GetProcAddress(kernel32, PCSTR(c"LoadLibraryW".as_ptr() as *const u8)) }
-            .ok_or_else(|| WinrError::Unsupported {
-                message: "GetProcAddress(LoadLibraryW) returned null".to_string(),
-            })?;
+        let load_library =
+            unsafe { GetProcAddress(kernel32, PCSTR(c"LoadLibraryW".as_ptr() as *const u8)) }
+                .ok_or_else(|| WinrError::Unsupported {
+                    message: "GetProcAddress(LoadLibraryW) returned null".to_string(),
+                })?;
 
         let thread = unsafe {
             CreateRemoteThread(
@@ -1226,8 +1266,10 @@ fn inject_agent_dll(pid: u32, dll_path: &Path) -> WinrResult<()> {
             let _ = WaitForSingleObject(thread, 5_000);
         }
         let mut exit_code = 0u32;
-        unsafe { GetExitCodeThread(thread, &mut exit_code) }.map_err(|error| WinrError::Unsupported {
-            message: format!("GetExitCodeThread failed after injection: {error}"),
+        unsafe { GetExitCodeThread(thread, &mut exit_code) }.map_err(|error| {
+            WinrError::Unsupported {
+                message: format!("GetExitCodeThread failed after injection: {error}"),
+            }
         })?;
         unsafe {
             let _ = CloseHandle(thread);
@@ -1257,9 +1299,11 @@ fn wide_null(value: &str) -> Vec<u16> {
 
 fn map_injected_input_action(action: &SemanticInputAction) -> Option<InjectedInputAction> {
     match action {
-        SemanticInputAction::MoveForward { duration_ms } => Some(InjectedInputAction::MoveForward {
-            duration_ms: *duration_ms,
-        }),
+        SemanticInputAction::MoveForward { duration_ms } => {
+            Some(InjectedInputAction::MoveForward {
+                duration_ms: *duration_ms,
+            })
+        }
         SemanticInputAction::StopMotion => Some(InjectedInputAction::StopMotion),
         SemanticInputAction::Turn {
             delta_yaw_milli_degrees,
@@ -1268,9 +1312,11 @@ fn map_injected_input_action(action: &SemanticInputAction) -> Option<InjectedInp
         }),
         SemanticInputAction::Interact => Some(InjectedInputAction::Interact),
         SemanticInputAction::Jump => Some(InjectedInputAction::Jump),
-        SemanticInputAction::StrafeRight { duration_ms } => Some(InjectedInputAction::StrafeRight {
-            duration_ms: *duration_ms,
-        }),
+        SemanticInputAction::StrafeRight { duration_ms } => {
+            Some(InjectedInputAction::StrafeRight {
+                duration_ms: *duration_ms,
+            })
+        }
         _ => None,
     }
 }
@@ -1284,13 +1330,18 @@ fn frame_from_snapshot(
     let region_distance = player_position
         .map(|position| euclidean_distance_millimeters(position, patrol.anchor_millimeters))
         .unwrap_or_default();
-    let player_entity = snapshot.player_position_millimeters.map(|position| ObservationEntity {
-        id: "player-self".to_string(),
-        label: "Player".to_string(),
-        kind: EntityKind::Player,
-        confidence: 1.0,
-        tags: vec![format!("world_mm:{},{},{}", position[0], position[1], position[2])],
-    });
+    let player_entity = snapshot
+        .player_position_millimeters
+        .map(|position| ObservationEntity {
+            id: "player-self".to_string(),
+            label: "Player".to_string(),
+            kind: EntityKind::Player,
+            confidence: 1.0,
+            tags: vec![format!(
+                "world_mm:{},{},{}",
+                position[0], position[1], position[2]
+            )],
+        });
     let mut entities = Vec::new();
     if let Some(player_entity) = player_entity {
         entities.push(player_entity);
@@ -1303,7 +1354,9 @@ fn frame_from_snapshot(
         tags: vec![
             format!(
                 "world_mm:{},{},{}",
-                patrol.anchor_millimeters[0], patrol.anchor_millimeters[1], patrol.anchor_millimeters[2]
+                patrol.anchor_millimeters[0],
+                patrol.anchor_millimeters[1],
+                patrol.anchor_millimeters[2]
             ),
             format!("radius_mm:{}", patrol.radius_millimeters),
             format!("distance_mm:{}", region_distance),
@@ -1315,7 +1368,10 @@ fn frame_from_snapshot(
             label: format!("Waypoint {}", index + 1),
             kind: EntityKind::Waypoint,
             confidence: 1.0,
-            tags: vec![format!("world_mm:{},{},{}", waypoint[0], waypoint[1], waypoint[2])],
+            tags: vec![format!(
+                "world_mm:{},{},{}",
+                waypoint[0], waypoint[1], waypoint[2]
+            )],
         });
     }
     for object in &snapshot.objects {
@@ -1422,8 +1478,12 @@ fn frame_from_snapshot(
             raw_layout_hidden: true,
         }),
         camera_hints: Some(CameraHints {
-            yaw_degrees: snapshot.camera_yaw_milli_degrees.map(|yaw| yaw as f32 / 1000.0),
-            pitch_degrees: snapshot.camera_pitch_milli_degrees.map(|pitch| pitch as f32 / 1000.0),
+            yaw_degrees: snapshot
+                .camera_yaw_milli_degrees
+                .map(|yaw| yaw as f32 / 1000.0),
+            pitch_degrees: snapshot
+                .camera_pitch_milli_degrees
+                .map(|pitch| pitch as f32 / 1000.0),
             field_of_view_degrees: None,
             camera_mode: None,
         }),
@@ -1476,7 +1536,9 @@ fn execute_foreground_fallback(action: &SemanticInputAction) -> Result<String, S
             send_key(VIRTUAL_KEY(0x57), false)?;
             thread::sleep(Duration::from_millis(*duration_ms));
             send_key(VIRTUAL_KEY(0x57), true)?;
-            Ok(format!("foreground fallback moved forward for {duration_ms} ms"))
+            Ok(format!(
+                "foreground fallback moved forward for {duration_ms} ms"
+            ))
         }
         SemanticInputAction::StopMotion => {
             send_key(VIRTUAL_KEY(0x57), true)?;
@@ -1524,7 +1586,9 @@ fn execute_foreground_fallback(action: &SemanticInputAction) -> Result<String, S
             send_key(VIRTUAL_KEY(0x44), false)?;
             thread::sleep(Duration::from_millis(*duration_ms));
             send_key(VIRTUAL_KEY(0x44), true)?;
-            Ok(format!("foreground fallback strafed right for {duration_ms} ms"))
+            Ok(format!(
+                "foreground fallback strafed right for {duration_ms} ms"
+            ))
         }
         unsupported => Err(format!(
             "foreground fallback does not implement action {:?}",
@@ -1683,7 +1747,12 @@ mod tests {
             .insert(0x10001000, (0x20000000usize).to_le_bytes().to_vec());
         memory.bytes.insert(
             0x20000020,
-            [1.0f32.to_le_bytes(), 0.0f32.to_le_bytes(), 2.5f32.to_le_bytes()].concat(),
+            [
+                1.0f32.to_le_bytes(),
+                0.0f32.to_le_bytes(),
+                2.5f32.to_le_bytes(),
+            ]
+            .concat(),
         );
         memory
             .bytes
@@ -1691,7 +1760,12 @@ mod tests {
         memory.bytes.insert(0x10003000, vec![1_u8]);
         memory.bytes.insert(
             0x10004000,
-            [1100_i32.to_le_bytes(), 0_i32.to_le_bytes(), 2500_i32.to_le_bytes()].concat(),
+            [
+                1100_i32.to_le_bytes(),
+                0_i32.to_le_bytes(),
+                2500_i32.to_le_bytes(),
+            ]
+            .concat(),
         );
 
         let observer = RobloxMemoryObserver {
@@ -1709,10 +1783,23 @@ mod tests {
             )
             .expect("live frame should build");
 
-        assert_eq!(frame.metadata.source, winr_perception::ObservationSourceKind::MemoryState);
-        assert!(frame.entities.iter().any(|entity| entity.id == "live-patrol-region"));
+        assert_eq!(
+            frame.metadata.source,
+            winr_perception::ObservationSourceKind::MemoryState
+        );
+        assert!(
+            frame
+                .entities
+                .iter()
+                .any(|entity| entity.id == "live-patrol-region")
+        );
         assert!(frame.entities.iter().any(|entity| entity.id == "rock-1"));
-        assert!(frame.entities.iter().any(|entity| entity.id == "live-prompt"));
+        assert!(
+            frame
+                .entities
+                .iter()
+                .any(|entity| entity.id == "live-prompt")
+        );
     }
 
     #[test]

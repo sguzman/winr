@@ -108,9 +108,12 @@ impl AdvancedAgentTransport for InMemoryAgentTransport {
 
 impl AdvancedAgentTransport for NamedPipeAgentTransport {
     fn send_command(&mut self, command: AdvancedHostCommandEnvelope) -> WinrResult<()> {
-        let bytes = serde_json::to_vec(&command).map_err(|error| winr_types::WinrError::Unsupported {
-            message: format!("failed to serialize host command for named pipe transport: {error}"),
-        })?;
+        let bytes =
+            serde_json::to_vec(&command).map_err(|error| winr_types::WinrError::Unsupported {
+                message: format!(
+                    "failed to serialize host command for named pipe transport: {error}"
+                ),
+            })?;
         write_frame(&mut self.command_pipe, &bytes)
     }
 
@@ -147,7 +150,8 @@ impl AdvancedAgentTransport for NamedPipeAgentTransport {
     ) -> WinrResult<()> {
         let _ = (payload, bytes);
         Err(winr_types::WinrError::Unsupported {
-            message: "named pipe transport does not implement binary payload storage yet".to_string(),
+            message: "named pipe transport does not implement binary payload storage yet"
+                .to_string(),
         })
     }
 
@@ -179,12 +183,11 @@ fn connect_pipe(pipe_name: &str, timeout: Duration) -> WinrResult<std::fs::File>
 fn pipe_has_bytes(file: &std::fs::File) -> WinrResult<bool> {
     let handle = HANDLE(file.as_raw_handle() as isize as *mut std::ffi::c_void);
     let mut available = 0u32;
-    unsafe {
-        PeekNamedPipe(handle, None, 0, None, Some(&mut available), None)
-    }
-    .map_err(|error| winr_types::WinrError::Unsupported {
-        message: format!("PeekNamedPipe failed while polling agent events: {error}"),
-    })?;
+    unsafe { PeekNamedPipe(handle, None, 0, None, Some(&mut available), None) }.map_err(
+        |error| winr_types::WinrError::Unsupported {
+            message: format!("PeekNamedPipe failed while polling agent events: {error}"),
+        },
+    )?;
     Ok(available > 0)
 }
 

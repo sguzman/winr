@@ -127,12 +127,14 @@ fn run_agent() -> Result<(), String> {
                 },
             },
             AdvancedHostCommand::SubscribeEvents => ack(&command, "event subscription active"),
-            AdvancedHostCommand::StartProfile { profile_id } => {
-                ack(&command, &format!("profile '{profile_id}' started in injected agent"))
-            }
-            AdvancedHostCommand::StopProfile { profile_id } => {
-                ack(&command, &format!("profile '{profile_id}' stopped in injected agent"))
-            }
+            AdvancedHostCommand::StartProfile { profile_id } => ack(
+                &command,
+                &format!("profile '{profile_id}' started in injected agent"),
+            ),
+            AdvancedHostCommand::StopProfile { profile_id } => ack(
+                &command,
+                &format!("profile '{profile_id}' stopped in injected agent"),
+            ),
             AdvancedHostCommand::FetchObservations { max_items } => {
                 let _ = max_items;
                 frame_id += 1;
@@ -253,7 +255,9 @@ fn open_server_pipe(pipe_name: &str) -> Result<File, String> {
         )
     };
     if handle.is_invalid() {
-        return Err(format!("CreateNamedPipeW returned an invalid handle for {pipe_name}"));
+        return Err(format!(
+            "CreateNamedPipeW returned an invalid handle for {pipe_name}"
+        ));
     }
 
     unsafe {
@@ -262,14 +266,18 @@ fn open_server_pipe(pipe_name: &str) -> Result<File, String> {
     }
 }
 
-fn capture_snapshot(schema: &RobloxMemorySchema, frame_id: u64) -> Result<RobloxObservationSnapshot, String> {
+fn capture_snapshot(
+    schema: &RobloxMemorySchema,
+    frame_id: u64,
+) -> Result<RobloxObservationSnapshot, String> {
     let timestamp_ms = now_ms();
     let player_position = read_required_vec3(schema.player_position.as_ref(), "player_position")?;
     let player_velocity = read_optional_vec3(schema.player_velocity.as_ref());
     let camera_yaw_milli_degrees = read_optional_i32(schema.camera_yaw_milli_degrees.as_ref());
     let camera_pitch_milli_degrees = read_optional_i32(schema.camera_pitch_milli_degrees.as_ref());
     let prompt_visible = read_optional_bool(schema.prompt_visible.as_ref());
-    let prompt_distance_millimeters = read_optional_u32(schema.prompt_distance_millimeters.as_ref());
+    let prompt_distance_millimeters =
+        read_optional_u32(schema.prompt_distance_millimeters.as_ref());
     let mut objects = Vec::new();
     for object in &schema.objects {
         if let Ok(position_millimeters) = read_vec3(&object.position) {
@@ -350,7 +358,10 @@ fn read_vec3(field: &RobloxMemoryField) -> Result<[i32; 3], String> {
 
 fn read_i32(field: &RobloxMemoryField) -> Result<i32, String> {
     if field.value_kind != RobloxMemoryValueKind::I32 {
-        return Err(format!("field expected i32 but schema uses {:?}", field.value_kind));
+        return Err(format!(
+            "field expected i32 but schema uses {:?}",
+            field.value_kind
+        ));
     }
     let bytes = read_field_bytes(field, 4)?;
     Ok(i32::from_le_bytes(bytes.try_into().unwrap()))
@@ -358,7 +369,10 @@ fn read_i32(field: &RobloxMemoryField) -> Result<i32, String> {
 
 fn read_u32(field: &RobloxMemoryField) -> Result<u32, String> {
     if field.value_kind != RobloxMemoryValueKind::U32 {
-        return Err(format!("field expected u32 but schema uses {:?}", field.value_kind));
+        return Err(format!(
+            "field expected u32 but schema uses {:?}",
+            field.value_kind
+        ));
     }
     let bytes = read_field_bytes(field, 4)?;
     Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
@@ -366,7 +380,10 @@ fn read_u32(field: &RobloxMemoryField) -> Result<u32, String> {
 
 fn read_bool(field: &RobloxMemoryField) -> Result<bool, String> {
     if field.value_kind != RobloxMemoryValueKind::U8Bool {
-        return Err(format!("field expected bool but schema uses {:?}", field.value_kind));
+        return Err(format!(
+            "field expected bool but schema uses {:?}",
+            field.value_kind
+        ));
     }
     let bytes = read_field_bytes(field, 1)?;
     Ok(bytes[0] != 0)
@@ -430,7 +447,10 @@ fn execute_input(target: &AdvancedTargetRef, action: InjectedInputAction) -> Adv
     }
 }
 
-fn do_execute_input(target: &AdvancedTargetRef, action: InjectedInputAction) -> Result<String, String> {
+fn do_execute_input(
+    target: &AdvancedTargetRef,
+    action: InjectedInputAction,
+) -> Result<String, String> {
     let hwnd_text = target
         .hwnd
         .as_deref()
@@ -496,7 +516,8 @@ fn parse_hwnd(text: &str) -> Result<HWND, String> {
 }
 
 fn write_json_frame<T: Serialize>(file: &mut File, value: &T) -> Result<(), String> {
-    let bytes = serde_json::to_vec(value).map_err(|error| format!("serialize pipe frame failed: {error}"))?;
+    let bytes = serde_json::to_vec(value)
+        .map_err(|error| format!("serialize pipe frame failed: {error}"))?;
     let len = bytes.len() as u32;
     file.write_all(&len.to_le_bytes())
         .and_then(|_| file.write_all(&bytes))
@@ -512,7 +533,8 @@ fn read_json_frame<T: for<'de> Deserialize<'de>>(file: &mut File) -> Result<T, S
     let mut bytes = vec![0u8; len];
     file.read_exact(&mut bytes)
         .map_err(|error| format!("read pipe frame payload failed: {error}"))?;
-    serde_json::from_slice(&bytes).map_err(|error| format!("deserialize pipe frame failed: {error}"))
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("deserialize pipe frame failed: {error}"))
 }
 
 fn wide_null(value: &str) -> Vec<u16> {

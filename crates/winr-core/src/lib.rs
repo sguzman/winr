@@ -504,7 +504,7 @@ pub fn screenshot_window(
     out: &Path,
     backend: ScreenshotBackend,
 ) -> WinrResult<ScreenshotResult> {
-    let window = window_info(selector)?;
+    let window = screenshot_window_info(selector)?;
     enforce_screenshot_permission(Some(&window))?;
     let hwnd = parse_selector_hwnd(&window.hwnd);
 
@@ -517,30 +517,22 @@ pub fn screenshot_window(
     );
 
     let (image, used_backend) = match backend {
+        ScreenshotBackend::Auto if window.visible && !window.minimized => (
+            capture_window_visible_rect(&window)?,
+            ScreenshotBackend::Gdi,
+        ),
         ScreenshotBackend::Auto => match capture_print_window(hwnd, &window) {
             Ok(image) => (image, ScreenshotBackend::PrintWindow),
             Err(error) => {
-                warn!(%error, hwnd = %window.hwnd, "PrintWindow capture failed, falling back to gdi");
+                warn!(%error, hwnd = %window.hwnd, "PrintWindow capture failed, falling back to visible desktop crop");
                 (
-                    capture_gdi(
-                        Some(hwnd),
-                        0,
-                        0,
-                        window.rect.right - window.rect.left,
-                        window.rect.bottom - window.rect.top,
-                    )?,
+                    capture_window_visible_rect(&window)?,
                     ScreenshotBackend::Gdi,
                 )
             }
         },
         ScreenshotBackend::Gdi => (
-            capture_gdi(
-                Some(hwnd),
-                0,
-                0,
-                window.rect.right - window.rect.left,
-                window.rect.bottom - window.rect.top,
-            )?,
+            capture_window_visible_rect(&window)?,
             ScreenshotBackend::Gdi,
         ),
         ScreenshotBackend::PrintWindow => (
@@ -552,15 +544,39 @@ pub fn screenshot_window(
     save_image(out, image, used_backend)
 }
 
+fn screenshot_window_info(selector: &WindowSelector) -> WinrResult<WindowInfo> {
+    match window_info(selector) {
+        Ok(window) => Ok(window),
+        Err(WinrError::AmbiguousWindow { count, matches }) => {
+            resolve_visible_screenshot_candidate(&matches)
+                .ok_or(WinrError::AmbiguousWindow { count, matches })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn resolve_visible_screenshot_candidate(matches: &[WindowInfo]) -> Option<WindowInfo> {
+    let mut candidates = matches
+        .iter()
+        .filter(|window| {
+            window.visible
+                && !window.minimized
+                && window.rect.right > window.rect.left
+                && window.rect.bottom > window.rect.top
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if candidates.len() == 1 {
+        candidates.pop()
+    } else {
+        None
+    }
+}
+
 pub(crate) fn capture_window_live_image(window: &WindowInfo) -> WinrResult<RgbaImage> {
     enforce_screenshot_permission(Some(window))?;
-    capture_gdi(
-        None,
-        window.rect.left,
-        window.rect.top,
-        window.rect.right - window.rect.left,
-        window.rect.bottom - window.rect.top,
-    )
+    capture_window_visible_rect(window)
 }
 
 #[instrument]
@@ -849,6 +865,16 @@ fn capture_print_window(hwnd: HWND, window: &WindowInfo) -> WinrResult<RgbaImage
     );
     cleanup_dc(Some(hwnd), source_dc, memory_dc, Some(bitmap));
     result
+}
+
+fn capture_window_visible_rect(window: &WindowInfo) -> WinrResult<RgbaImage> {
+    capture_gdi(
+        None,
+        window.rect.left,
+        window.rect.top,
+        window.rect.right - window.rect.left,
+        window.rect.bottom - window.rect.top,
+    )
 }
 
 enum CaptureMode {
@@ -1912,6 +1938,31 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(error, WinrError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn screenshot_candidate_prefers_single_visible_window() {
+        let real = make_window("0x0000000000000001", "Hearthstone");
+        let mut hidden = make_window("0x0000000000000002", "Default IME");
+        hidden.visible = false;
+        hidden.rect = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+
+        let selected = resolve_visible_screenshot_candidate(&[real.clone(), hidden])
+            .expect("one visible screenshot candidate should be selected");
+        assert_eq!(selected.hwnd, real.hwnd);
+    }
+
+    #[test]
+    fn screenshot_candidate_keeps_real_ambiguity() {
+        let first = make_window("0x0000000000000001", "First");
+        let second = make_window("0x0000000000000002", "Second");
+
+        assert!(resolve_visible_screenshot_candidate(&[first, second]).is_none());
     }
 
     #[test]

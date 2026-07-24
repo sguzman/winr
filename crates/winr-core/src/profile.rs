@@ -15,8 +15,8 @@ use winr_inject::{
     resolve_backend_selection, run_live_roblox_workflow,
 };
 use winr_types::{
-    AdvancedCapabilitySelection, AdvancedFrontend, AdvancedProfileBackend, MouseInputMode,
-    LiveSessionInspection, ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector,
+    AdvancedCapabilitySelection, AdvancedFrontend, AdvancedProfileBackend, LiveSessionInspection,
+    MouseInputMode, ProfileAction, ProfileClickPoint, ProfileConfig, ProfileDetector,
     ProfileMouseButton, ProfileRunResult, ProfileWorkflowIntegration, WindowInfo, WindowSelector,
     WinrError, WinrResult,
 };

@@ -349,9 +349,11 @@ impl WinrMcpServer {
         &self,
         Parameters(params): Parameters<ProfileInspectParams>,
     ) -> McpToolResult<LiveSessionInspection> {
-        from_winr(core_load_profile(PathBuf::from(&params.path).as_path()).and_then(|profile| {
-            core_inspect_live_profile_session(&profile, AdvancedFrontend::Mcp)
-        }))
+        from_winr(
+            core_load_profile(PathBuf::from(&params.path).as_path()).and_then(|profile| {
+                core_inspect_live_profile_session(&profile, AdvancedFrontend::Mcp)
+            }),
+        )
     }
 
     #[rmcp::tool(

@@ -4,8 +4,8 @@ mod discovery;
 mod host;
 mod input;
 mod memory;
-mod roblox;
 mod render;
+mod roblox;
 mod transport;
 
 use tracing::{debug, instrument};
@@ -19,10 +19,10 @@ use winr_types::{
     AdvancedCommandAckStatus, AdvancedCommandRecord, AdvancedExecutionReason, AdvancedFrontend,
     AdvancedHostCommand, AdvancedHostCommandEnvelope, AdvancedHostResponse,
     AdvancedHostResponseEnvelope, AdvancedIpcTransportDescriptor, AdvancedIpcTransportKind,
-    AdvancedProfileBackend, AdvancedProfileExecutionPlan, AdvancedReplayTrace, InjectedInputAction,
+    AdvancedProfileBackend, AdvancedProfileExecutionPlan, AdvancedReplayTrace,
     AdvancedSequenceNumber, AdvancedSessionId, AdvancedStructuredEvent,
-    AdvancedStructuredEventKind, MouseInputMode, ProfileConfig, WindowSelector, WinrError,
-    WinrResult,
+    AdvancedStructuredEventKind, InjectedInputAction, MouseInputMode, ProfileConfig,
+    WindowSelector, WinrError, WinrResult,
 };
 
 pub use agent::{AdvancedAgentRuntime, StubAdvancedAgent};
@@ -31,11 +31,11 @@ pub use discovery::{discover_attachable_targets, resolve_attachable_target};
 pub use host::AdvancedHostRuntime;
 pub use input::{LayeredInputBackend, StubLayeredInputBackend};
 pub use memory::{MemoryObservationBackend, StubMemoryObserver};
+pub use render::{RenderObservationBackend, StubRenderObserver};
 pub use roblox::{
     LiveRobloxRunOptions, inspect_live_roblox_session, load_roblox_memory_schema,
     run_live_roblox_workflow,
 };
-pub use render::{RenderObservationBackend, StubRenderObserver};
 pub use transport::{AdvancedAgentTransport, InMemoryAgentTransport, NamedPipeAgentTransport};
 
 pub trait AdvancedObservationBackend {
